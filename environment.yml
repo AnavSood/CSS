@@ -1,0 +1,16 @@
+name: css
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - scipy
+  - pip
+  - numpy
+  - jax
+  - matplotlib
+  - tqdm
+  - pandas
+  - seaborn
+  - pip:
+    - -r requirements.txt
+    #- git+git://github.com/jcrudy/choldate.git
