@@ -45,9 +45,11 @@ void css_reg(
 
     const double rsq0 = C.diagonal().sum();
     
-    size_t next_size = p;
+    int next_size = p;
 
     for (size_t i = 0; i < k; ++i) {
+        if (next_size <= 0) break;
+
         // apply forward-step with current residual matrix
         auto C_sub = C.block(0, 0, next_size, next_size);
         Eigen::Index i_max;
@@ -57,14 +59,25 @@ void css_reg(
         // save results
         subset.push_back(order[i_max]);
         rsq_subset.push_back(rsq);
+        
+        int last_index = C_sub.cols();
+
+        // switch order of included column
+        --last_index;
+        C_sub.col(i_max).swap(C_sub.col(last_index));
+        C_sub.row(i_max).swap(C_sub.row(last_index));
+        std::swap(order[i_max], order[last_index]);
+        
+        // create residual matrix
+        const auto C_max = C_sub.col(last_index);
+        C_sub.noalias() -= (C_max * C_max.transpose()) / C_max[last_index];
 
         // switch near-0 residual row/col with last index
-        int last_index = C_sub.cols();
         for (int j = 0; j < last_index; ++j) {
             if ((j != last_index-1) && (C_sub(j,j) <= 1e-10)) {
                 --last_index;
-                C_sub.col(j).swap(C_sub.col(last_index));
-                C_sub.row(j).swap(C_sub.row(last_index));
+                C_sub.col(j).head(last_index).swap(C_sub.col(last_index).head(last_index));
+                C_sub.row(j).head(last_index).swap(C_sub.row(last_index).head(last_index));
                 std::swap(order[j], order[last_index]);
             }
         }
