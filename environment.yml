@@ -6,11 +6,13 @@ dependencies:
   - scipy
   - pip
   - numpy
-  - jax
   - matplotlib
   - tqdm
   - pandas
   - seaborn
+  - pytest
+  - jupyter
+  - Cython
   - pip:
     - -r requirements.txt
-    #- git+git://github.com/jcrudy/choldate.git
+    - git+https://github.com/jcrudy/choldate.git

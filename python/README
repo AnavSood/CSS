@@ -1,8 +1,0 @@
-# PyCSS
-
-## Installation
-
-```
-bazel build //python:pycss_wheel
-pip install bazel-bin/python/dist/pycss-0.1-py3-none-any.whl
-```

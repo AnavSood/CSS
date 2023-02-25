@@ -8,16 +8,15 @@ CWD = os.path.abspath(os.path.dirname(__file__))
 if "VERSION" in os.environ:
     version = os.environ["VERSION"]
 else:
-    version = "0.1"
+    version = "0.0.9"
 
 setup(
     name="pycss",
-    description="css exports to Python.",
+    description="CSS Package",
     author="Anav Sood",
     author_email="anavsood@stanford.edu",
     packages=find_packages(),
-    install_requires=["numpy", "pybind11"],
-    data_files=[("../../pycss", ["pycss_core.so"])],
+    install_requires=["numpy"],
     zip_safe=False,
     version=version,
 )
