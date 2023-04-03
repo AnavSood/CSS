@@ -551,9 +551,9 @@ def swapping_subset_selection(Sigma,
     idx_order = np.arange(p)
     
     if S_init is None:
-      S_init = np.random.choice(idx_order, k, replace=False)
+        S_init = np.random.choice(idx_order, k, replace=False)
     elif len(S_init) != k:
-      raise ValueError("Initial subset must be of length k.")
+        raise ValueError("Initial subset must be of length k.")
     
     Sigma_R = Sigma.copy()
     # these will always be the indices of the selected subset
@@ -565,14 +565,14 @@ def swapping_subset_selection(Sigma,
     invertible, Sigma_S_L = is_invertible(Sigma_S) 
     
     if not invertible:
-      return None, None, S_init, converged, populate_colinearity_errors(S)
+        return None, None, S_init, converged, populate_colinearity_errors(S)
     
     regress_off_in_place(Sigma_R, np.arange(d, p))
     zero_idxs = np.where(np.diag(Sigma_R)[:d] <= tol)[0]
     num_zero_idxs = len(zero_idxs)
     
     if flag_colinearity and num_zero_idxs > 0:
-      return None, None, S_init, converged, populate_colinearity_errors(S, responses=idx_order[zero_idxs])
+        return None, None, S_init, converged, populate_colinearity_errors(S, responses=idx_order[zero_idxs])
 
     # number of completed iterations
     N = 0
@@ -583,72 +583,72 @@ def swapping_subset_selection(Sigma,
     break_flag = False 
 
     while N < max_iter and (not break_flag):
-      for i in range(k):
-        S_0 = S[0]
-        # Remove first variable from selected subset 
-        T = S[1:]
+        for i in range(k):
+            S_0 = S[0]
+            # Remove first variable from selected subset 
+            T = S[1:]
 
-        # Update cholesky after removing first variable from subset 
-        Sigma_T_L = update_cholesky_after_removing_first(Sigma_S_L) 
+            # Update cholesky after removing first variable from subset 
+            Sigma_T_L = update_cholesky_after_removing_first(Sigma_S_L) 
 
-        # Update residual covariance after removing first variable from subset
-        v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
-        reordered_v = v[idx_order]
-        Sigma_R = Sigma_R + np.outer(reordered_v, reordered_v)/v[S_0]
+            # Update residual covariance after removing first variable from subset
+            v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
+            reordered_v = v[idx_order]
+            Sigma_R = Sigma_R + np.outer(reordered_v, reordered_v)/v[S_0]
 
-        # Swap first variable from subset to to top of residual matrix 
-        swap_in_place(Sigma_R, np.array([0]), np.array([d]), idx_order=idx_order)  
+            # Swap first variable from subset to to top of residual matrix 
+            swap_in_place(Sigma_R, np.array([0]), np.array([d]), idx_order=idx_order)  
         
-        # If not flag_colinearity, find indices of variables with zero variance
-        if not flag_colinearity:
-          zero_idxs = np.where(np.diag(Sigma_R)[:(d + 1)] <= tol)[0]
-          num_zero_idxs = len(zero_idxs)
-          # In residual matrix, swap variables with zero indices to right above currently selected subset (of size k-1)
-          swap_in_place(Sigma_R, zero_idxs, np.arange(d + 1 - num_zero_idxs, d + 1), idx_order=idx_order)
-        else:
-          num_zero_idxs = 0
+            # If not flag_colinearity, find indices of variables with zero variance
+            if not flag_colinearity:
+                zero_idxs = np.where(np.diag(Sigma_R)[:(d + 1)] <= tol)[0]
+                num_zero_idxs = len(zero_idxs)
+                # In residual matrix, swap variables with zero indices to right above currently selected subset (of size k-1)
+                swap_in_place(Sigma_R, zero_idxs, np.arange(d + 1 - num_zero_idxs, d + 1), idx_order=idx_order)
+            else:
+                num_zero_idxs = 0
         
-        # update num_active
-        num_active = d + 1 - num_zero_idxs 
+            # update num_active
+            num_active = d + 1 - num_zero_idxs 
 
-        # compute objectives and for active variables and find minimizers
-        obj_vals, colinearity_error_idxs = objective(Sigma_R[:num_active, :num_active], flag_colinearity=flag_colinearity, tol=tol)
+            # compute objectives and for active variables and find minimizers
+            obj_vals, colinearity_error_idxs = objective(Sigma_R[:num_active, :num_active], flag_colinearity=flag_colinearity, tol=tol)
 
-        if len(colinearity_error_idxs[0]) > 0:
-          return None, None, S_init, converged, populate_colinearity_errors(S[:i], 
-                                                                            idx_order[colinearity_error_idxs[0]], 
-                                                                            idx_order[colinearity_error_idxs[1]])
+            if len(colinearity_error_idxs[0]) > 0:
+                return None, None, S_init, converged, populate_colinearity_errors(S[:i], 
+                                                                                  idx_order[colinearity_error_idxs[0]], 
+                                                                                  idx_order[colinearity_error_idxs[1]])
         
-        choices = np.flatnonzero(obj_vals == obj_vals.min())
+            choices = np.flatnonzero(obj_vals == obj_vals.min())
 
-        # if removed variable is a choice, select it, otherwise select a random choice
-        if 0 in choices:
-          not_replaced += 1
-          j_star = 0 
-        else:
-          not_replaced = 0
-          j_star = np.random.choice(choices)
+            # if removed variable is a choice, select it, otherwise select a random choice
+            if 0 in choices:
+                not_replaced += 1
+                j_star = 0 
+            else:
+                not_replaced = 0
+                j_star = np.random.choice(choices)
 
-        # Add new choice as the last variable in selected subset
-        S_new = idx_order[j_star]
-        S[:k-1] = S[1:]
-        S[k-1] = S_new
-        # Update cholesky after adding new choice as last variable in selected subset 
-        Sigma_S_L = update_cholesky_after_adding_last(Sigma_T_L, Sigma[S_new, S])
-        # In residual covariance, regress selected variable off the remaining
-        #regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star) #alternative option
-        regress_one_off_in_place(Sigma_R[:num_active, :num_active], j_star)
-        # In residual covariance swap new choice to top of selected subset and then permute selected subset
-        # so the new choice is at the bottom, reflecting S
-        swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
-        perm_in_place(Sigma_R, subset_idxs,  subset_idxs_permuted, idx_order=idx_order)
+            # Add new choice as the last variable in selected subset
+            S_new = idx_order[j_star]
+            S[:k-1] = S[1:]
+            S[k-1] = S_new
+            # Update cholesky after adding new choice as last variable in selected subset 
+            Sigma_S_L = update_cholesky_after_adding_last(Sigma_T_L, Sigma[S_new, S])
+            # In residual covariance, regress selected variable off the remaining
+            #regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star) #alternative option
+            regress_one_off_in_place(Sigma_R[:num_active, :num_active], j_star)
+            # In residual covariance swap new choice to top of selected subset and then permute selected subset
+            # so the new choice is at the bottom, reflecting S
+            swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
+            perm_in_place(Sigma_R, subset_idxs,  subset_idxs_permuted, idx_order=idx_order)
         
-        if not_replaced == k:
-          converged=True
-          break_flag=True
-          break
+            if not_replaced == k:
+                converged=True
+                break_flag=True
+                break
 
-      N += 1
+        N += 1
 
     perm_in_place(Sigma_R, np.arange(p), np.argsort(idx_order))
     return S, Sigma_R, S_init, converged, []
@@ -1006,7 +1006,7 @@ def compute_imputed_moments(X, MLE):
 
     return m, Omega
 
-def compute_in_sample_mean_log_likelihood(log_det_Sigma_MLE, p):
+def compute_in_sample_mean_log_likelihood(p, log_det_Sigma_MLE):
     """
     Computes the mean in sample log-likelihood of Gaussian data given the
     log determinant of the maximum likelihood estimate of the covariance
@@ -1014,10 +1014,10 @@ def compute_in_sample_mean_log_likelihood(log_det_Sigma_MLE, p):
   
     Parameters
     ----------
+   	p : int
+        Dimension of the covariance matrix. 
     log_det_Sigma_MLE : float
         The log determinant of the maximum likelihood estimate of the covariance. 
-	p : int
-        Dimension of the covariance matrix. 
         
     Returns 
 	-------

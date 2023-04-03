@@ -1,2 +1,8 @@
 bazel-*
 *.so
+data/factor_covariance.csv
+data/factor_exposure.csv
+data/specific_variance.csv
+data/topic_exposure.csv 
+notebooks/all_results.pickle
+notebooks/all_W_hat_results.pickle

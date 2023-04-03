@@ -88,6 +88,8 @@ class PCSS():
             The '(k, k)'-shaped cholesky decomposition of C_MLE. 
         self.C_MLE_inv : np.array
             The '(k, k)'-shaped inverse of C_MLE. 
+        self.log_likelihhod : float
+            The maximized log likelihood, divided by the sample size `n`.
         self.MLE_init : Dict[str, np.array]
             Will be `None` in this case. Only relevant for finding the MLE in presence of missing data. 
         self.colinearity_errors : list[ValueError]
@@ -185,6 +187,8 @@ class PCSS():
             The '(k, k)'-shaped cholesky decomposition of C_MLE. 
         self.C_MLE_inv : np.array
             The '(k, k)'-shaped inverse of C_MLE. 
+        self.log_likelihhod : float
+            The maximized log-likelihood, divided by the sample size `n`.
         self.MLE_init : Dict[str, np.array]
             Will be `None` in this case. Only relevant for finding the MLE in presence of missing data. 
         self.colinearity_errors : list[ValueError]
@@ -266,15 +270,19 @@ class PCSS():
 
         if len(colinearity_errors) > 0:
             self.colinearity_errors = colinearity_errors
-            self.MLE, self.C_MLE_chol, self.C_MLE_inv = None, None, None
+            self.MLE, self.C_MLE_chol, self.C_MLE_inv, self.log_likelihood = None, None, None, None
             raise ValueError("Issues with colinearity.")
             
         self.colinearity_errors = []
-        self.MLE, self.C_MLE_chol, self.C_MLE_inv = compute_MLE_from_selected_subset(Sigma, 
-                                                                                     S, 
-                                                                                     Sigma_R=Sigma_R,
-                                                                                     noise=noise, 
-                                                                                     mu_MLE=mu_MLE)
+        MLE, C_MLE_chol, C_MLE_inv = compute_MLE_from_selected_subset(Sigma, 
+                                                                      S, 
+                                                                      Sigma_R=Sigma_R,
+                                                                      noise=noise, 
+                                                                      mu_MLE=mu_MLE)
+        self.log_likelihood = compute_in_sample_mean_log_likelihood(p, compute_log_det_Sigma_MLE(MLE, C_MLE_chol=C_MLE_chol))
+        self.MLE = MLE
+        self.C_MLE_chol = C_MLE_chol
+        self.C_MLE_inv = C_MLE_inv
 
     def compute_MLE_from_partially_observed_data(self, 
                                                  X, 
@@ -317,6 +325,9 @@ class PCSS():
             The '(k, k)'-shaped cholesky decomposition of C_MLE. 
         self.C_MLE_inv : np.array
             The '(k, k)'-shaped inverse of C_MLE. 
+        self.log_likelihhod : float
+            The maximized mean conditional log-likelihood (conditional on the non-missing values), divided by
+            the sample size `n`. 
         self.MLE_init : Dict[str, np.array]
             A dictionary containing the intialization for the EM algorithm. The keys are the same as in 
             `self.MLE`. 
@@ -371,7 +382,8 @@ class PCSS():
             MLE_keys = set(['C_MLE', 'W_MLE', 'S_MLE', 'mu_MLE', 'D_MLE'])
 
         # get initialization for the EM algorithm 
-        if MLE_init is None or None in MLE_init.values() or set(MLE_init.keys()) != MLE_keys:
+        #if MLE_init is None or None in MLE_init.values() or set(MLE_init.keys()) != MLE_keys:
+        if MLE_init is None or set(MLE_init.keys()) != MLE_keys:
 
             X_init = np.where(np.isnan(X), np.nanmean(X, axis=0), X)  
             mu_init, Sigma_init = get_moments(X_init)
@@ -393,7 +405,7 @@ class PCSS():
         break_flag = False
         converged = False
         prev_log_likelihood = -np.inf
-        curr_log_likelihood = compute_in_sample_mean_log_likelihood(compute_log_det_Sigma_MLE(MLE, C_MLE_chol), p)
+        curr_log_likelihood = compute_in_sample_mean_log_likelihood(p, compute_log_det_Sigma_MLE(MLE, C_MLE_chol))
 
         if noise == 'sph':
             objective = sph_pcss_objective
@@ -420,7 +432,7 @@ class PCSS():
             
             if len(colinearity_errors) > 0:
                 self.colinearity_errors = colinearity_errors
-                self.MLE, self.C_MLE_chol, self.C_MLE_inv = None, None, None
+                self.MLE, self.C_MLE_chol, self.C_MLE_inv, self.log_likelihood = None, None, None, None
                 raise ValueError("Issues with colinearity.")
       
             MLE, C_MLE_chol, C_MLE_inv = compute_MLE_from_selected_subset(Psi, 
@@ -430,7 +442,7 @@ class PCSS():
                                                                           mu_MLE=m)
       
             prev_log_likelihood = curr_log_likelihood
-            curr_log_likelihood = compute_in_sample_mean_log_likelihood(compute_log_det_Sigma_MLE(MLE, C_MLE_chol), p)
+            curr_log_likelihood = compute_in_sample_mean_log_likelihood(p, compute_log_det_Sigma_MLE(MLE, C_MLE_chol))
             # Terminate if increase in observed likelihood is small enough
             if curr_log_likelihood - prev_log_likelihood < tau:
                 converged = True
@@ -441,5 +453,6 @@ class PCSS():
         self.MLE = MLE
         self.C_MLE_chol = C_MLE_chol
         self.C_MLE_inv = C_MLE_inv
+        self.log_likelihood = curr_log_likelihood
 
   

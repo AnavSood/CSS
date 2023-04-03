@@ -12,6 +12,8 @@ dependencies:
   - seaborn
   - pytest
   - jupyter
+  - cvxpy
+  - scs
   - Cython
   - pip:
     - -r requirements.txt

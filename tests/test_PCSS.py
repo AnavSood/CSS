@@ -35,6 +35,7 @@ def test_greedy_sph_PCSS_from_data():
         assert(np.all(pcss.MLE[key] == MLE[key]))
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
@@ -71,6 +72,7 @@ def test_greedy_diag_PCSS_from_data():
         assert(np.all(pcss.MLE[key] == MLE[key]))
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
@@ -109,6 +111,7 @@ def test_swap_sph_PCSS_from_data():
         assert(np.all(pcss.MLE[key] == MLE[key]))
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
@@ -147,6 +150,7 @@ def test_swap_diag_PCSS_from_data():
         assert(np.all(pcss.MLE[key] == MLE[key]))
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
@@ -178,6 +182,7 @@ def test_sph_PCSS_from_partially_observed_data():
     assert(pcss.MLE is not None)
     assert(np.allclose(pcss.C_MLE_chol, np.linalg.cholesky(pcss.MLE['C_MLE'])))
     assert(np.allclose(pcss.C_MLE_inv, np.linalg.inv(pcss.MLE['C_MLE'])))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is not None)
     assert(np.all(pcss.MLE_init['S_MLE'] == np.arange(k)))
     assert(len(pcss.colinearity_errors) == 0)
@@ -210,6 +215,7 @@ def test_diag_PCSS_from_partially_observed_data():
     assert(pcss.MLE is not None)
     assert(np.allclose(pcss.C_MLE_chol, np.linalg.cholesky(pcss.MLE['C_MLE'])))
     assert(np.allclose(pcss.C_MLE_inv, np.linalg.inv(pcss.MLE['C_MLE'])))
+    assert(pcss.log_likelihood is not None)
     assert(pcss.MLE_init is not None)
     assert(np.all(pcss.MLE_init['S_MLE'] == np.arange(k)))
     assert(len(pcss.colinearity_errors) == 0)

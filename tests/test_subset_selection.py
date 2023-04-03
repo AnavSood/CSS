@@ -575,5 +575,5 @@ def test_compute_in_sample_mean_log_likelihood():
     X = np.random.multivariate_normal(np.zeros(p), np.eye(p), (n, ))
     mu_hat, Sigma_hat = get_moments(X)
     log_det = np.log(np.linalg.det(Sigma_hat))
-    assert(np.allclose(compute_in_sample_mean_log_likelihood(log_det, p), 
+    assert(np.allclose(compute_in_sample_mean_log_likelihood(p, log_det), 
                        np.mean(stats.multivariate_normal(mean=mu_hat, cov=Sigma_hat).logpdf(X))))
