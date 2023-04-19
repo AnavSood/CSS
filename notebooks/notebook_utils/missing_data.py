@@ -26,12 +26,8 @@ def block_OMP_with_missing_data(X, k):
         theta = [A_I_pinv[j] @ vec_Y_tilde[j] for j in range(p)]
         temp = [A_I[j] @ theta[j] for j in range(p)]
         y_tilde = [vec_Y_tilde[j] - temp[j] for j in range(p)]
-    
-    #A_I_pinv = [ np.linalg.pinv(w[:, j][:, None] * Y_tilde[:, I]) for j in range(p)]
-    W_hat = [A_I_pinv[j] @ vec_Y_tilde[j] for j in complement(p, I)]
-    W_hat = np.vstack(W_hat)
 
-    return np.array(I), W_hat 
+    return np.array(I)
 
 def group_lasso_with_missing_data(X, k, solver='CLARABEL', tol=1e-10):
 
@@ -57,50 +53,13 @@ def group_lasso_with_missing_data(X, k, solver='CLARABEL', tol=1e-10):
         where_selected = np.where(norms > tol)[0]
         num_selected = len(where_selected)
         if num_selected == k:
-            W_hat = W.value[where_selected, :][:, complement(p, where_selected)].T
-            return where_selected, W_hat
+            return where_selected
         if num_selected < k:
             upper_bound = curr_lamb
             curr_lamb = (lower_bound + curr_lamb)/2
         if num_selected > k:
             lower_bound = curr_lamb 
             curr_lamb = (upper_bound + curr_lamb)/2
-
-def mean_imputation_css_with_missing_data(X, k, num_inits=1):
-
-    n, p = X.shape
-    X = np.where(np.isnan(X), np.nanmean(X, axis=0), X) 
-    _, Sigma_hat = get_moments(X)
-    best_S = np.nan
-    best_obj = np.inf
-    best_converged = False
-    css = CSS()
-    for i in range(num_inits):
-        css.select_subset_from_data(X, k, method='swap')
-        potential_obj = np.trace(css.Sigma_R)
-        if potential_obj < best_obj:
-            best_obj = potential_obj
-            best_S = css.S 
-            best_converged = css.converged
-    best_S_comp = complement(p, best_S)
-    W_hat = get_W(Sigma_hat, best_S)
-    return best_S, W_hat, best_converged
-
-def pcss_with_missing_data(X, k, num_inits=1):
-
-    best_MLE = np.nan
-    best_log_likelihood = -np.inf
-    best_converged = False
-    pcss = PCSS()
-    for i in range(num_inits):
-        pcss.compute_MLE_from_partially_observed_data(X, k)
-        potential_log_likelihood = pcss.log_likelihood
-        if potential_log_likelihood > best_log_likelihood:
-            best_obj = potential_log_likelihood
-            best_MLE = pcss.MLE
-            best_converged = pcss.converged
-
-    return best_MLE['S_MLE'], best_MLE['W_MLE'], best_converged, best_MLE['mu_MLE']
 
 def get_masked_covariance(X):
     n, p = X.shape
@@ -127,7 +86,7 @@ def masked_css_with_missing_data(X, k, num_inits=1, method='swap'):
     p = Sigma_hat.shape[0]
     best_S = np.nan
     best_obj = np.inf
-    best_converged = False
+    converged = False
     css = CSS()
     for i in range(num_inits):
         css.select_subset_from_cov(Sigma_hat, k, method=method)
@@ -135,61 +94,40 @@ def masked_css_with_missing_data(X, k, num_inits=1, method='swap'):
         if potential_obj < best_obj:
             best_obj = potential_obj
             best_S = css.S 
-            best_converged = css.converged
+            converged = css.converged
     best_S_comp = complement(p, best_S)
-    W_hat = get_W(Sigma_hat, best_S)
-    return best_S, W_hat, best_converged
+    return best_S, converged
 
 def obj_css(Sigma, idxs, resid=None):
     p = len(Sigma)
     k = len(idxs)
     if resid is None:
         resid = regress_off(Sigma, idxs)
-    return np.trace(resid)/(p-k)
+    return np.trace(resid)
 
 def get_W(Sigma, S):
     p = Sigma.shape[0]
     S_comp = complement(p, S)
     return Sigma[S_comp, :][:, S] @ np.linalg.inv(Sigma[S, :][:, S])
 
-def analyze_missing_data(X_missing, X, k, methods=['mean', 'em', 'block', 'lasso'], solver='CLARABEL', num_inits=1):
+def analyze_missing_data(X_missing, X, k, methods=['mask', 'block', 'lasso'], solver='CLARABEL', num_inits=1):
     
     n, p = X.shape
+    X_missing_c = X_missing - np.nanmean(X_missing, axis=0)
     _, Sigma_hat = get_moments(X)
     second_moment = 1/n * X.T @ X
     css_results = {}
-    W_results = {}
-    num_missing = np.sum(np.isnan(X_missing))
-
-    if 'mean' in methods:
-        S, W_hat, converged = mean_imputation_css_with_missing_data(X_missing, k, num_inits=num_inits)
-        if not converged:
-            print('mean imputation did not converge.')
-        css_results['mean'] = obj_css(Sigma_hat, S)
-        W_results['mean'] = np.linalg.norm(W_hat - get_W(Sigma_hat, S)) 
-        #X_filled = np.where(np.isnan(X_missing), np.nanmean(X_missing, axis=0), X_missing) 
-        #imputation_results['mean'] = np.sum(np.square(X - X_filled))/num_missing 
-    
-    if 'em' in methods:   
-        S, W_hat, converged = pcss_with_missing_data(X_missing, k, num_inits=num_inits)
-        css_results['em'] = obj_css(Sigma_hat, S)
-        W_results['em'] = np.linalg.norm(W_hat - get_W(Sigma_hat, S)) 
-        #m, _ = compute_imputed_moments(X_missing, MLE)
-        #imputation_results['em'] = np.sum(np.square(X - m))/num_missing 
-    
+  
     if 'mask' in methods:
-        S, W_hat, converged = masked_css_with_missing_data(X_missing, k, num_inits=num_inits)
+        S, converged = masked_css_with_missing_data(X_missing, k, num_inits=num_inits)
         css_results['mask'] = obj_css(Sigma_hat, S)
-        W_results['mask'] = np.linalg.norm(W_hat - get_W(Sigma_hat, S))
 
     if 'block' in methods:
-        S, W_hat = block_OMP_with_missing_data(X_missing, k)
+        S = block_OMP_with_missing_data(X_missing_c, k)
         css_results['block'] = obj_css(Sigma_hat, S)
-        W_results['block'] = np.linalg.norm(W_hat - get_W(second_moment, S))
 
     if 'lasso' in methods:
-        S, W_hat = group_lasso_with_missing_data(X, k, solver=solver)
+        S = group_lasso_with_missing_data(X_missing_c, k, solver=solver)
         css_results['lasso'] = obj_css(Sigma_hat, S)
-        W_results['lasso'] = np.linalg.norm(W_hat - get_W(second_moment, S))
     
-    return css_results, W_results
+    return css_results

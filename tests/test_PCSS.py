@@ -36,7 +36,6 @@ def test_greedy_sph_PCSS_from_data():
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
     assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
 def test_greedy_diag_PCSS_from_data():
@@ -73,7 +72,6 @@ def test_greedy_diag_PCSS_from_data():
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
     assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
 def test_swap_sph_PCSS_from_data():
@@ -112,7 +110,6 @@ def test_swap_sph_PCSS_from_data():
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
     assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
 
 def test_swap_diag_PCSS_from_data():
@@ -151,71 +148,4 @@ def test_swap_diag_PCSS_from_data():
     assert(np.all(pcss.C_MLE_chol == C_MLE_chol))
     assert(np.all(pcss.C_MLE_inv == C_MLE_inv))
     assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is None)
     assert(np.all(np.array(pcss.colinearity_errors) == colinearity_errors))
-
-def test_sph_PCSS_from_partially_observed_data():
-    
-    np.random.seed(0)
-    n = 10
-    p = 5
-    k = 1
-    X = np.random.normal(0, 1, (n, p))
-    mask = np.random.binomial(1, 0.1, X.shape)
-    mask_idxs = np.where(mask)
-    not_mask_idxs = np.where(1 - mask) 
-    X[mask_idxs] = np.nan
-    pcss = PCSS()
-    MLE_init = {'S_MLE': np.arange(k)}
-    pcss.compute_MLE_from_partially_observed_data(X, k, noise='sph', MLE_init=MLE_init)
-    
-    assert(pcss.n == n)
-    assert(np.all(np.isnan(pcss.X[mask_idxs])))
-    assert(np.all(pcss.X[not_mask_idxs] == X[not_mask_idxs]))
-    assert(pcss.p == p)
-    assert(pcss.k == k)
-    assert(pcss.Sigma is None)
-    assert(pcss.S is not None)
-    assert(pcss.Sigma_R is None)
-    assert(pcss.S_init is None)
-    assert(pcss.converged)
-    assert(pcss.MLE is not None)
-    assert(np.allclose(pcss.C_MLE_chol, np.linalg.cholesky(pcss.MLE['C_MLE'])))
-    assert(np.allclose(pcss.C_MLE_inv, np.linalg.inv(pcss.MLE['C_MLE'])))
-    assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is not None)
-    assert(np.all(pcss.MLE_init['S_MLE'] == np.arange(k)))
-    assert(len(pcss.colinearity_errors) == 0)
-
-def test_diag_PCSS_from_partially_observed_data():
-    
-    np.random.seed(0)
-    n = 10
-    p = 5
-    k = 1
-    X = np.random.normal(0, 1, (n, p))
-    mask = np.random.binomial(1, 0.1, X.shape)
-    mask_idxs = np.where(mask)
-    not_mask_idxs = np.where(1 - mask) 
-    X[mask_idxs] = np.nan
-    pcss = PCSS()
-    MLE_init = {'S_MLE': np.arange(k)}
-    pcss.compute_MLE_from_partially_observed_data(X, k, noise='diag', MLE_init=MLE_init)
-    
-    assert(pcss.n == n)
-    assert(np.all(np.isnan(pcss.X[mask_idxs])))
-    assert(np.all(pcss.X[not_mask_idxs] == X[not_mask_idxs]))
-    assert(pcss.p == p)
-    assert(pcss.k == k)
-    assert(pcss.Sigma is None)
-    assert(pcss.S is not None)
-    assert(pcss.Sigma_R is None)
-    assert(pcss.S_init is None)
-    assert(pcss.converged)
-    assert(pcss.MLE is not None)
-    assert(np.allclose(pcss.C_MLE_chol, np.linalg.cholesky(pcss.MLE['C_MLE'])))
-    assert(np.allclose(pcss.C_MLE_inv, np.linalg.inv(pcss.MLE['C_MLE'])))
-    assert(pcss.log_likelihood is not None)
-    assert(pcss.MLE_init is not None)
-    assert(np.all(pcss.MLE_init['S_MLE'] == np.arange(k)))
-    assert(len(pcss.colinearity_errors) == 0)

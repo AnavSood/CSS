@@ -82,7 +82,7 @@ def Q(alphas, n, p, k, B=int(1e5), noise='sph', seed=0):
 def sieves_gaussian_LRT(Sigma_hat, n, alpha, noise='sph', method='swap', num_inits=1, quantiles={}, B=int(1e5), seed=0):
     
     """
-    Select the subset size via a sequential sieve-like hypothesis testing proecedure. 
+    Select the subset size via a sequential sieves hypothesis testing proecedure. 
   
     Parameters
     ----------
@@ -136,7 +136,7 @@ def sieves_gaussian_LRT(Sigma_hat, n, alpha, noise='sph', method='swap', num_ini
             if potential_restricted_log_det < restricted_log_det:
                 restricted_log_det = potential_restricted_log_det
                 S = pcss.S
-        
+
         if (n, p, k, 1 - alpha, noise) not in quantiles:
             quantiles[(n, p, k, 1 - alpha, noise)] = Q(1 - alpha, n, p, k, B=B, noise=noise, seed=seed)
         

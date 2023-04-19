@@ -1,6 +1,6 @@
 import numpy as np
 from choldate import cholupdate
-from pycss.subset_selection import perm_in_place
+from pycss.subset_selection import complement, perm_in_place
 
 
 def get_equicorrelated_chol(k, off_diag, diag=1):
@@ -86,27 +86,25 @@ def generate_gaussian_PCSS_sample_cov(n, C_chol, W, D=None, sigma_sq=None, S=Non
     
     return np.squeeze(Sigma_hat) if squeeze else Sigma_hat
 
-def generate_gaussian_PCSS_data(n, X_S, W, D=None, sigma_sq=None, mu_S_comp=None, S=None, B=None):
+def generate_PCSS_data(X_S, W, D=None, sigma_sq=None, mu_S_comp=None, S=None):
     
-    if W is None:
-        raise ValueError("W cannot be None.")
     
     if D is None and sigma_sq is None:
         raise ValueError("Both D and sigma_sq cannot be None.")
     if D is not None and sigma_sq is not None:
         raise ValueError("Both D and sigma_sq cannot be not None.")
     
-    if len(X_S.shape) != 3:
-        raise ValueError("X_S must be 3-dimensional")
-    
     squeeze = False
-    if B is None:
-        B = 1
-    squeeze = True
-    
-    k = W.shape[1]
+    if len(X_S.shape) == 2:
+        X_S = X_S.reshape((1, X_S.shape[0], X_S.shape[1]))
+        squeeze = True
+
+    B, n, k = X_S.shape 
+
+    if k != W.shape[1]:
+        raise ValueError("Shapes of X_S and W do not agree")
+
     p = k + W.shape[0]
-    
     mu_S = np.mean(X_S, axis=1)
 
     noise = np.random.normal(0, 1, size=(B, n, p-k))
