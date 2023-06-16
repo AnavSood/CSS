@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from pycss.PCSS import * 
 from pycss.subset_selection import compute_log_det_Sigma_MLE
 
@@ -79,7 +80,16 @@ def Q(alphas, n, p, k, B=int(1e5), noise='sph', seed=0):
 	"""
     return np.quantile(sample_LRT_stat_under_null(n, p, k, B=B, noise=noise, seed=seed), alphas)
 
-def sieves_gaussian_LRT(Sigma_hat, n, alpha, noise='sph', method='swap', num_inits=1, quantiles={}, B=int(1e5), seed=0):
+def cov_df(p):
+    return int(p*(p+1)/2)
+
+def model_df(p, k, noise):
+    if noise == 'sph':
+        return cov_df(k) + (p-k)*k + 1 if k < p else cov_df(p)
+    if noise == 'diag':
+        return cov_df(k) + (p-k)*(k+ 1)
+
+def sieves_gaussian_LRT(Sigma_hat, n, alpha, noise='sph', method='swap', num_inits=1, quantiles={}, B=int(1e5), seed=0, asymptotic=False):
     
     """
     Select the subset size via a sequential sieves hypothesis testing proecedure. 
@@ -137,12 +147,21 @@ def sieves_gaussian_LRT(Sigma_hat, n, alpha, noise='sph', method='swap', num_ini
                 restricted_log_det = potential_restricted_log_det
                 S = pcss.S
 
-        if (n, p, k, 1 - alpha, noise) not in quantiles:
+        if not asymptotic and (n, p, k, 1 - alpha, noise) not in quantiles:
             quantiles[(n, p, k, 1 - alpha, noise)] = Q(1 - alpha, n, p, k, B=B, noise=noise, seed=seed)
         
-        if n*(restricted_log_det - full_log_det) <= quantiles[(n, p, k, 1 - alpha, noise)]:
-            return S
+        T = n*(restricted_log_det - full_log_det)
+        if not asymptotic:
+            if  T <= quantiles[(n, p, k, 1 - alpha, noise)]:
+                return S
+            else:
+                k = k + 1
         else:
-            k = k + 1
+            df = cov_df(p) - model_df(p, k, noise)
+            if T <= scipy.stats.chi2.ppf(1 - alpha, df):
+                return S
+            else:
+                k = k + 1
+
     
     return np.arange(p)
