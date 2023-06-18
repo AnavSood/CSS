@@ -57,9 +57,9 @@ def test_regress_one_off_in_place():
     rho = 1/2
     Sigma = get_equicorrelated_matrix(p, rho)
     copy = Sigma.copy()
-    regress_one_off_in_place(Sigma, 0, 2)
+    regress_one_off_in_place(Sigma, 0, tol=2)
     assert(np.all(Sigma == copy))
-    regress_one_off_in_place(Sigma, 0, 1e-10)
+    regress_one_off_in_place(Sigma, 0, tol=TOL)
     assert(np.all(Sigma[0, :] == 0))
     assert(np.all(Sigma[:, 0] == 0))
     assert(np.all(copy[1:,1:] - Sigma[1:, 1:] == rho**2))
@@ -67,11 +67,32 @@ def test_regress_one_off_in_place():
 def test_regress_off_in_place():
     Sigma = np.diag(np.arange(1, 5))
     copy = Sigma.copy()
-    regress_off_in_place(Sigma, np.array([]), 1e-10)
+    regress_off_in_place(Sigma, np.array([]), tol=TOL)
     assert(np.all(Sigma == copy))
-    regress_off_in_place(Sigma, np.array([0, 1, 2]), 1e-10)
+    regress_off_in_place(Sigma, np.array([0, 1, 2]), tol=TOL)
     assert(np.all(Sigma[:3, :3] == 0))
     assert(np.all(Sigma[3:, 3:] == copy[3:, 3:]))
+
+def test_regress_one_off():
+    p = 10 
+    rho = 1/2
+    Sigma = get_equicorrelated_matrix(p, rho)
+    copy = Sigma.copy()
+    Sigma_R = regress_one_off(Sigma, 0, tol=TOL)
+    assert(np.all(Sigma == copy))
+    assert(np.all(Sigma_R[0, :] == 0))
+    assert(np.all(Sigma_R[:, 0] == 0))
+    assert(np.all(Sigma[1:,1:] - Sigma_R[1:, 1:] == rho**2))
+
+def test_regress_off():
+    Sigma = np.diag(np.arange(1, 5))
+    copy = Sigma.copy()
+    Sigma_R = regress_off(Sigma, np.array([]), tol=TOL)
+    assert(np.all(Sigma_R == copy))
+    Sigma_R = regress_off(Sigma, np.array([0, 1, 2]), tol=TOL)
+    assert(np.all(Sigma_R[:3, :3] == 0))
+    assert(np.all(Sigma_R[3:, 3:] == copy[3:, 3:]))
+    assert(np.all(Sigma == copy))
 
 def test_update_cholesky_after_removing_first():
     # edge case
@@ -130,116 +151,126 @@ def test_solve_with_cholesky():
 def test_is_invertible():
     
     #edge case
-    tol = 1e-10
-    Sigma = np.array([[1, 5], [5, 25 + 3*tol]])
-    flag, _ = is_invertible(Sigma, tol)
+
+    Sigma = np.array([[1, 5], [5, 25 + TOL]])
+    flag, _ = is_invertible(Sigma, tol=TOL)
     assert(flag == False)
     
     p = 10
     rho = 0.5
     Sigma = get_equicorrelated_matrix(p, rho)
     np.fill_diagonal(Sigma, np.arange(1, p + 1))
-    flag, Sigma_L = is_invertible(Sigma, tol)
+    flag, Sigma_L = is_invertible(Sigma, tol=TOL)
     assert(flag == True)
     assert(np.allclose(Sigma_L, np.linalg.cholesky(Sigma)))
 
-
-def test_css_objective():
+def test_css_score():
     p = 4
     rho = 1/2
     Sigma_R = np.zeros((p, p))
     Sigma_R[:3, :3] = get_equicorrelated_matrix(p-1, rho)
-    np.fill_diagonal(Sigma_R, np.array([1, 2, 4, 0]))
-    obj_vals, _ = css_objective(Sigma_R, flag_colinearity=False, tol=1e-10)
+    np.fill_diagonal(Sigma_R, np.array([1, 2, 4, 0.5*TOL]))
+    obj_vals = css_score(Sigma_R, tol=TOL)
     assert np.all(obj_vals == np.array([-(1**2 + 2*rho**2)/1,
                                         -(2**2 + 2*rho**2)/2, 
                                         -(4**2 + 2*rho**2)/4, 
                                         0]))
 
-def test_pcss_objective():
-    p = 3
-    rho = 1/2
-    Sigma_R = get_equicorrelated_matrix(p, rho)
-    np.fill_diagonal(Sigma_R, np.array([1, 2, 4]))
-    obj_vals, _ = pcss_objective(Sigma_R, 
-                                 noise='sph',
-                                 flag_colinearity=True, 
-                                 tol=1e-10)
-    assert(np.all(obj_vals == np.array([np.log(1) + 2*np.log(np.sum([2 - rho**2, 4 - rho**2])) ,
-                                        np.log(2) + 2*np.log(np.sum([1 - rho**2/2, 4 - rho**2/2])),
-                                        np.log(4) + 2*np.log(np.sum([1 - rho**2/4, 2 - rho**2/4]))])))
-    obj_vals, _ = pcss_objective(Sigma_R, 
-                                 noise='diag',
-                                 flag_colinearity=True, 
-                                 tol=1e-10)
-    assert(np.all(obj_vals == np.array([np.log(1) + np.sum(np.log([2 - rho**2, 4 - rho**2])) ,
-                                        np.log(2) + np.sum(np.log([1 - rho**2/2, 4 - rho**2/2])),
-                                        np.log(4) + np.sum(np.log([1 - rho**2/4, 2 - rho**2/4]))])))
 
-def test_populate_colinearity_errors():
-    errors = populate_colinearity_errors(np.array([0, 1]), 
-                                         additions=np.array([2, 2, 2, 5, 6]),
-                                         responses=np.array([4, 8, 9, 10, 11]))
-    assert(len(errors) == 3)
+def test_greedy_css():
+    Sigma = np.diag(np.array([1, 2, 3, 4, 5]))
 
-    errors = populate_colinearity_errors(np.array([0, 1]))
-    assert(len(errors) == 1)
+    S, Sigma_R = greedy_css(Sigma,
+                            k=5)
+    assert(np.all(S  == np.array([4, 3, 2, 1, 0])))
+    assert(np.all(Sigma_R == 0))
 
-    errors = populate_colinearity_errors(np.array([0, 1]), responses=np.array([4, 8, 9, 10, 11]))
-    assert(len(errors) == 1)
+    S, Sigma_R = greedy_css(Sigma,
+                            k=1,
+                            exclude=np.array([4]))
+    assert(np.all(S == 3))
+    assert(np.all(Sigma_R == np.diag(np.array([1, 2, 3, 0, 5]))))
 
-def test_greedy_subset_selection():
-    p = 15
-    Sigma = np.diag(np.arange(1, p+1))
-    S, Sigma_R, errors = greedy_subset_selection(Sigma, 
-                                                 k=10, 
-                                                 objective=css_objective, 
-                                                 tol=1e-10,
-                                                 flag_colinearity=False)
-    assert(np.all(S == np.arange(14, 4, -1)))
-    assert(np.all(Sigma_R[5:, 5:] == 0))
-    assert(np.all(Sigma_R[:5, :5] == Sigma[:5, :5]))
-    assert(len(errors) == 0)
+    S, Sigma_R = greedy_css(Sigma,
+                            k=1,
+                            include=np.array([0]))
+    assert(np.all(S == 0))
+    assert(np.all(Sigma_R == np.diag(np.array([0, 2, 3, 4, 5]))))
+    
+    S, Sigma_R = greedy_css(Sigma, 
+                            cutoffs=6)
+    assert(np.all(S == np.array([4, 3])))
+    assert(np.all(Sigma_R == np.diag(np.array([1, 2, 3, 0, 0]))))
 
-    Sigma[14, :] = 0
-    Sigma[:, 14] = 0
+    S, Sigma_R = greedy_css(Sigma, 
+                            cutoffs=6)
+    
+    Sigma[0, 0] = 3
+    Sigma[1, 1] = 3
+    Sigma[0, 1] = 3
+    Sigma[1, 0] = 3
+    S, Sigma_R = greedy_css(Sigma, 
+                            cutoffs=4,
+                            include=np.array([2]),
+                            exclude=np.array([1]))
+    assert(np.all(S == np.array([2, 0, 4])))
+    assert(np.all(Sigma_R == np.diag(np.array([0, 0, 0, 4, 0]))))
 
-    S, Sigma_R, errors = greedy_subset_selection(Sigma, 
-                                                 k=15, 
-                                                 objective=css_objective, 
-                                                 tol=1e-10,
-                                                 flag_colinearity=False)
-    assert(S[-1] == -1)
+    S, Sigma_R = greedy_css(Sigma, 
+                            cutoffs=np.array([11, 6, 2, 1, 0]))
+    assert(np.all(S == np.array([0, 4, 3, 2])) or np.all(S == np.array([1, 4, 3, 2])))
+    assert(np.all(Sigma_R == np.diag(np.array([0, 0, 0, 0, 0]))))
+
+def test_greedy_css_exclude_last():
+    Sigma = np.eye(5)
+    S, Sigma_R = greedy_css(Sigma,
+                            cutoffs=0,
+                            exclude=np.array([4]))
+    assert(set(S) == set(np.arange(4)))
+    correct_Sigma_R = np.zeros((5, 5))
+    correct_Sigma_R[4, 4] = 1
+    assert(np.all(Sigma_R == correct_Sigma_R))
+
+    S, Sigma_R = greedy_css(Sigma,
+                            k=4,
+                            exclude=np.array([4]))
+    assert(set(S) == set(np.arange(4)))
+    assert(np.all(Sigma_R == correct_Sigma_R))
+           
 
 
+def test_swapping_css():
 
-def test_swapping_subset_selection():
     p=10
-    k=3
+    k=5
     Sigma = np.ones((p, p))
-    S, Sigma_R, S_init, converged, errors = swapping_subset_selection(Sigma,
-                                                                      k=k,
-                                                                      objective=css_objective,
-                                                                      tol=1e-10,
-                                                                      flag_colinearity=False)
-    assert(converged == False)
-    assert(len(errors) == 1)
+    S, Sigma_R, S_init, converged = swapping_css(Sigma,
+                                                  k,
+                                                  num_inits=10)
+   
+    assert(S is None)
     
     Sigma = np.eye(p)
-    S, Sigma_R, S_init, converged, errors = swapping_subset_selection(Sigma,
-                                                                      k=k,
-                                                                      objective=css_objective,
-                                                                      tol=1e-10,
-                                                                      flag_colinearity=False)
+    S, Sigma_R, S_init, converged = swapping_css(Sigma,
+                                                 k,
+                                                 S_init=np.array([0, 5, 6, 3, 2]))
     assert(converged)
     assert(set(S) == set(S_init))
 
+    include=np.array([0, 5, 7])
+    exclude=np.array([3, 2, 9])
+    S, Sigma_R, S_init, converged =  swapping_css(Sigma,
+                                                  k,
+                                                  include=include,
+                                                  exclude=exclude)
+    assert(converged)
+    assert(set(S) == set(S_init))
+    assert(set(include).issubset(S))
+    assert(len(set(exclude).intersection(S)) == 0)
+
     Sigma = np.diag(np.arange(1, p+1))
-    S, Sigma_R, S_init, converged, errors = swapping_subset_selection(Sigma,
-                                                                      k=k,
-                                                                      objective=css_objective,
-                                                                      tol=1e-10,
-                                                                      flag_colinearity=False)
+    S, Sigma_R, S_init, converged = swapping_css(Sigma,
+                                                 k)
     assert(converged)
     assert(set(S) == set(np.arange(p-k, p)))
 
@@ -249,42 +280,11 @@ def test_swapping_and_greedy_agree():
     np.random.seed(0)
     A = np.random.normal(0, 1, (p, p))
     Sigma = A @ A.T
-    S_swap, Sigma_R_swap, _, _, _ = swapping_subset_selection(Sigma,
-                                                              k=k,
-                                                              objective=css_objective,
-                                                              tol=1e-10,
-                                                              flag_colinearity=False)
-    S_greedy, Sigma_R_greedy, _ = greedy_subset_selection(Sigma, 
-                                                          k=k, 
-                                                          objective=css_objective, 
-                                                          tol=1e-10,
-                                                          flag_colinearity=False)
-    assert(np.all(S_greedy == S_swap))
-    assert(np.allclose(Sigma_R_swap, Sigma_R_greedy))
-
-    S_swap, Sigma_R_swap, _, _, _ = swapping_subset_selection(Sigma,
-                                                              k=k,
-                                                              objective=sph_pcss_objective,
-                                                              tol=1e-10,
-                                                              flag_colinearity=True)
-    S_greedy, Sigma_R_greedy, _ = greedy_subset_selection(Sigma, 
-                                                          k=k, 
-                                                          objective=sph_pcss_objective,
-                                                          tol=1e-10,
-                                                          flag_colinearity=True)
-    assert(np.all(S_greedy == S_swap))
-    assert(np.allclose(Sigma_R_swap, Sigma_R_greedy))
-
-    S_swap, Sigma_R_swap, _, _, _ = swapping_subset_selection(Sigma,
-                                                              k=k,
-                                                              objective=diag_pcss_objective,
-                                                              tol=1e-10,
-                                                              flag_colinearity=True)
-    S_greedy, Sigma_R_greedy, _ = greedy_subset_selection(Sigma, 
-                                                          k=k, 
-                                                          objective=diag_pcss_objective,
-                                                          tol=1e-10,
-                                                          flag_colinearity=True)
+    S_swap, Sigma_R_swap, _, _ =  swapping_css(Sigma,
+                                               k=1)
+    
+    S_greedy, Sigma_R_greedy, = greedy_css(Sigma, 
+                                           k=1)
     assert(np.all(S_greedy == S_swap))
     assert(np.allclose(Sigma_R_swap, Sigma_R_greedy))
 
@@ -297,22 +297,18 @@ def test_ordozgoiti_example():
                   [0, 0, 0 , 1]])
     Sigma = X.T @ X
     
-    S_greedy, Sigma_R_greedy, _ = greedy_subset_selection(Sigma, 
-                                                          k=1, 
-                                                          objective=css_objective,
-                                                          tol=1e-10,
-                                                          flag_colinearity=False)
+    S_greedy, _ = greedy_css(Sigma, 
+                             k=1)
+    
     assert(np.all(S_greedy == 0))
 
-    S_swap, Sigma_R_swap, _, converged, _ = swapping_subset_selection(Sigma,
-                                                                      k=2,
-                                                                      objective=css_objective,
-                                                                      tol=1e-10,
-                                                                      flag_colinearity=False,
-                                                                      S_init=np.array([1, 3]))
+    S_swap, _, S_init, converged = swapping_css(Sigma,
+                                        k=2,
+                                        S_init=np.array([1, 3]))
     assert(converged)
     assert(set(S_swap) == set([1, 3]))
-                                                    
+    assert(np.all(S_init == np.array([1, 3])))
+                                                   
 def test_swapping_beats_greedy():
     p = 100
     k = 50
@@ -320,196 +316,57 @@ def test_swapping_beats_greedy():
     A = np.random.normal(0, 1, (p, p))
     Sigma = A @ A.T
 
-    S_greedy, Sigma_R_greedy, _ = greedy_subset_selection(Sigma, 
-                                                          k=k, 
-                                                          objective=css_objective, 
-                                                          tol=1e-10,
-                                                          flag_colinearity=False)
+    S_greedy, Sigma_R_greedy = greedy_css(Sigma, 
+                                          k=k)
     
-    S_swap, Sigma_R_swap, S_init, _, _ = swapping_subset_selection(Sigma, 
-                                                                   k=k, 
-                                                                   objective=css_objective, 
-                                                                   tol=1e-10,
-                                                                   flag_colinearity=False,
-                                                                   S_init = S_greedy,
-                                                                   max_iter=1)
+    S_swap, Sigma_R_swap, S_init, _  = swapping_css(Sigma, 
+                                                    k=k, 
+                                                    S_init = S_greedy,
+                                                    max_iter=1)
 
     assert(np.all(S_init == S_greedy))
-    assert(np.round(np.mean(np.diag(Sigma_R_swap)), 5) <= np.round(np.mean(np.diag(Sigma_R_greedy)), 5))
+    if (set(S_init) == set(S_swap)):
+        assert(np.trace(Sigma_R_swap) <= np.trace(Sigma_R_greedy))
+    else:
+        assert(np.trace(Sigma_R_swap) < np.trace(Sigma_R_greedy))
 
 def test_zero_iter_swapping():
+    
     p = 100
     k = 20
     np.random.seed(0)
     A = np.random.normal(0, 1, (p, p))
     Sigma = A @ A.T
     
-    S_swap, Sigma_R_swap, S_init, _, _ = swapping_subset_selection(Sigma, 
-                                                                   k=k, 
-                                                                   objective=css_objective, 
-                                                                   tol=1e-10,
-                                                                   flag_colinearity=False,
-                                                                   max_iter=0)
+    S_swap, Sigma_R_swap, S_init, converged = swapping_css(Sigma, 
+                                                           k=k, 
+                                                           max_iter=0)
 
     regress_off_in_place(Sigma, S_init)
     assert(set(S_swap) == set(S_init))
     assert(np.allclose(Sigma_R_swap, Sigma))
+    assert(not converged)
 
-def test_compute_MLE_from_selected_subset():
+def test_exhaustive_css():
     
-    p = 15
-    k = 5
-    rho = 0.25
-    C = get_equicorrelated_matrix(k, rho)
-    np.fill_diagonal(C, np.arange(1, len(C) + 1))
-    np.random.seed(0)
-    W = np.random.choice(np.array([-1, 1]),  (p - k, k))
-    D = np.random.chisquare(5, p-k)
-    sigma_sq = np.random.chisquare(5)
-    S = np.arange(k)
+    p=20
+    k=4
+    Sigma = np.diag(np.arange(1, p + 1))
+    S, Sigma_R = exhaustive_css(Sigma, k, show_progress=False)
 
-    Sigma = np.zeros((p, p))
-    Sigma[:k, :k] = C.copy()
-    Sigma[k:, :k] = W @ C
-    Sigma[:k, k:] = C @ W.T
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(sigma_sq*np.ones(p-k))
+    assert(set(S) == set(np.arange(p-k, p)))
+    assert(np.all(Sigma_R == np.diag(np.concatenate([np.arange(1, p - k + 1), np.zeros(k)]))))
 
-    MLE, _, _ = compute_MLE_from_selected_subset(Sigma, S, noise='sph')
+    Sigma = np.diag(np.arange(1, p + 1))
+    S, Sigma_R = exhaustive_css(Sigma, k, include=np.array([0]), exclude=np.array([19, 17, 15]), show_progress=False)
     
-    assert(MLE['mu_MLE'] is None)
-    assert(np.all(MLE['C_MLE'] == C))
-    assert(np.allclose(MLE['W_MLE'], W))
-    assert(np.allclose(MLE['sigma_sq_MLE'], sigma_sq))
-    assert(np.all(S == MLE['S_MLE']))
-    
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(D)
+    correct_S = set([0, 18, 16, 14])
+    assert(set(S) == correct_S)
+    correct_Sigma_R = Sigma.copy()
+    for j in correct_S:
+        correct_Sigma_R[j, j] = 0
+    assert(np.all(Sigma_R == correct_Sigma_R))
 
-    MLE, _, _ = compute_MLE_from_selected_subset(Sigma, S, noise='diag')
-    assert(MLE['mu_MLE'] is None)
-    assert(np.all(MLE['C_MLE'] == C))
-    assert(np.allclose(MLE['W_MLE'], W))
-    assert(np.allclose(MLE['D_MLE'], D))
-    assert(np.all(S == MLE['S_MLE']))
 
-def test_noise_from_MLE():
 
-    sph_dict = {'sigma_sq_MLE' : 0}
-    assert('sph' == noise_from_MLE(sph_dict))
 
-    diag_dict = {'D_MLE' : 0}
-    assert('diag' == noise_from_MLE(diag_dict))
-
-def test_compute_log_det_Sigma_MLE():
-    
-    p = 15
-    k = 5
-    rho = 0.25
-    C = get_equicorrelated_matrix(k, rho)
-    np.fill_diagonal(C, np.arange(1, len(C) + 1))
-    np.random.seed(0)
-    W = np.random.choice(np.array([-1, 1]),  (p - k, k))
-    D = np.random.chisquare(5, p-k)
-    sigma_sq = np.random.chisquare(5)
-    S = np.arange(k)
-
-    Sigma = np.zeros((p, p))
-    Sigma[:k, :k] = C.copy()
-    Sigma[k:, :k] = W @ C
-    Sigma[:k, k:] = C @ W.T
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(sigma_sq*np.ones(p-k))
-
-    MLE, C_MLE_chol, _ = compute_MLE_from_selected_subset(Sigma, S, noise='sph')
-    
-    assert(np.allclose(np.log(np.linalg.det(Sigma)), compute_log_det_Sigma_MLE(MLE, C_MLE_chol=C_MLE_chol)))
-    
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(D)
-
-    MLE, C_MLE_chol, _ = compute_MLE_from_selected_subset(Sigma, S, noise='diag')
-
-    assert(np.allclose(np.log(np.linalg.det(Sigma)), compute_log_det_Sigma_MLE(MLE, C_MLE_chol=C_MLE_chol)))
-
-def test_compute_log_det_Sigma_MLE():
-    
-    p = 15
-    k = 5
-    rho = 0.25
-    C = get_equicorrelated_matrix(k, rho)
-    np.fill_diagonal(C, np.arange(1, len(C) + 1))
-    np.random.seed(0)
-    W = np.random.choice(np.array([-1, 1]),  (p - k, k))
-    D = np.random.chisquare(5, p-k)
-    sigma_sq = np.random.chisquare(5)
-    S = np.arange(k)
-
-    Sigma = np.zeros((p, p))
-    Sigma[:k, :k] = C.copy()
-    Sigma[k:, :k] = W @ C
-    Sigma[:k, k:] = C @ W.T
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(sigma_sq*np.ones(p-k))
-    
-    Sigma_inv = np.linalg.inv(Sigma)
-    MLE, _, C_MLE_inv = compute_MLE_from_selected_subset(Sigma, S, noise='sph')
-
-    top_left_block, bottom_left_block, bottom_right_block = compute_Sigma_MLE_inv(MLE, C_MLE_inv=C_MLE_inv)
-    
-    assert(np.allclose(top_left_block, Sigma_inv[:k, :k]))
-    assert(np.allclose(bottom_left_block, Sigma_inv[k:, :k]))
-    assert(np.allclose(np.diag(bottom_right_block), Sigma_inv[k:, k:]))
-    
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(D)
-    Sigma_inv = np.linalg.inv(Sigma)
-    MLE, _, C_MLE_inv = compute_MLE_from_selected_subset(Sigma, S, noise='diag')
-
-    top_left_block, bottom_left_block, bottom_right_block = compute_Sigma_MLE_inv(MLE, C_MLE_inv=C_MLE_inv)
-
-    assert(np.allclose(top_left_block, Sigma_inv[:k, :k]))
-    assert(np.allclose(bottom_left_block, Sigma_inv[k:, :k]))
-    assert(np.allclose(np.diag(bottom_right_block), Sigma_inv[k:, k:]))
-
-def test_compute_log_det_Sigma_MLE():
-    
-    p = 15
-    k = 5
-    rho = 0.25
-    C = get_equicorrelated_matrix(k, rho)
-    np.fill_diagonal(C, np.arange(1, len(C) + 1))
-    np.random.seed(0)
-    W = np.random.choice(np.array([-1, 1]),  (p - k, k))
-    D = np.random.chisquare(5, p-k)
-    sigma_sq = np.random.chisquare(5)
-    S = np.arange(k)
-
-    Sigma = np.zeros((p, p))
-    Sigma[:k, :k] = C.copy()
-    Sigma[k:, :k] = W @ C
-    Sigma[:k, k:] = C @ W.T
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(sigma_sq*np.ones(p-k))
-    
-    Sigma_chol = np.linalg.cholesky(Sigma)
-    MLE, C_MLE_chol, _ = compute_MLE_from_selected_subset(Sigma, S, noise='sph')
-
-    top_left_block, bottom_left_block, bottom_right_block = compute_Sigma_MLE_chol(MLE, C_MLE_chol=C_MLE_chol)
-    
-    assert(np.allclose(top_left_block, Sigma_chol[:k, :k]))
-    assert(np.allclose(bottom_left_block, Sigma_chol[k:, :k]))
-    assert(np.allclose(np.diag(bottom_right_block), Sigma_chol[k:, k:]))
-    
-    Sigma[k:, k:] = W @  C @ W.T + np.diag(D)
-    Sigma_chol = np.linalg.cholesky(Sigma)
-    MLE, C_MLE_chol, _  = compute_MLE_from_selected_subset(Sigma, S, noise='diag')
-
-    top_left_block, bottom_left_block, bottom_right_block = compute_Sigma_MLE_chol(MLE, C_MLE_chol=C_MLE_chol)
-
-    assert(np.allclose(top_left_block, Sigma_chol[:k, :k]))
-    assert(np.allclose(bottom_left_block, Sigma_chol[k:, :k]))
-    assert(np.allclose(np.diag(bottom_right_block), Sigma_chol[k:, k:]))
-    
-def test_compute_in_sample_mean_log_likelihood():
-    n = 50
-    p = 10
-    np.random.seed(0)
-    X = np.random.multivariate_normal(np.zeros(p), np.eye(p), (n, ))
-    mu_hat, Sigma_hat = get_moments(X)
-    log_det = np.log(np.linalg.det(Sigma_hat))
-    assert(np.allclose(compute_in_sample_mean_log_likelihood(p, log_det), 
-                       np.mean(stats.multivariate_normal(mean=mu_hat, cov=Sigma_hat).logpdf(X))))
