@@ -1,4 +1,8 @@
+import warnings
 import numpy as np
+import itertools
+import math 
+import tqdm 
 from choldate import cholupdate
 from scipy.linalg import solve_triangular
 
@@ -154,6 +158,27 @@ def regress_off_in_place(Sigma, S, tol=TOL):
     for j in S:
         regress_one_off_in_place(Sigma, j, tol)
 
+def regress_one_off(Sigma, j, tol=TOL):
+    
+    '''
+    Same as `regress_one_off_in_place` but not in place
+    '''
+    
+    if Sigma[j, j] > tol:
+        return Sigma - np.outer(Sigma[:, j], Sigma[:, j])/Sigma[j, j]   
+    else:
+        return Sigma 
+
+def regress_off(Sigma, S, tol=TOL):
+    
+    '''
+    Same as `regress_off_in_place` but not in place
+    '''
+
+    for j in S:
+        Sigma = regress_one_off(Sigma, j, tol)
+    return Sigma 
+
 def update_cholesky_after_removing_first(L):
     
     """
@@ -297,578 +322,561 @@ def is_invertible(Sigma, tol=TOL):
       Sigma_L = update_cholesky_after_adding_last(Sigma_L_, Sigma[p-1, :])
     return True, Sigma_L
 
-def css_objective(Sigma_R, flag_colinearity=False, tol=TOL):
+
+def css_score(Sigma_R, tol=TOL):
     
     """
     Given a current residual covariance matrix `Sigma_R` computes 
-    CSS objective values for each variable in `Sigma_R`. The variable
-    with the lowest objective value most reduces the CSS objective when
-    added to the currently selected subset. 
+    scores for each variable `Sigma_R`. The variable with the lowest 
+    score will most reduce the CSS objective value when added to the 
+    currently selected subset. 
 
     Parameters
 	----------
 	Sigma_R : np.array
-	    Current residual covariance matrix.
-    flag_colinearity : bool, default=`False`
-        Whether or not to flag colinearity issues - not applicable for this objective. 
+	    A `(p, p)`-shaped current residual covariance matrix.
     tol : float, default=`TOL`
         Tolerance at which point we consider a variable to have zero variance.
 	
     Returns 
 	-------
 	np.array
-        Objective values for each variable.
-    (np.array, np.array)
-        Indices where the residuals were below the specified tolerance - will alway be 
-        empty for this objective. 
+        A length `p` array of scores for each variable.
 	"""
+    
     diag = np.diag(Sigma_R)
-    return -1 * np.divide(np.sum(np.square(Sigma_R), axis=1), diag, out=np.zeros_like(diag, dtype=float), where=(diag!=0)), (np.array([]), np.array([]))
+    return -1 * np.divide(np.sum(np.square(Sigma_R), axis=1), diag, out=np.zeros_like(diag, dtype=float), where=(diag > tol))
 
-def pcss_objective(Sigma_R, noise='sph', flag_colinearity=True, tol=TOL):
+def check_greedy_css_inputs(Sigma, k, cutoffs, include, exclude, tol):
 
     """
-    Given a current residual covariance matrix `Sigma_R` computes 
-    Gaussian PCSS objective values for each variable in `Sigma_R`. The variable
-    with the lowest objective value most increases the Gaussian PCSS likelihood 
-    when added to the current subset. 
-
-    Parameters
-	----------
-	Sigma_R : np.array
-	    Current residual covariance matrix,
-    noise : string
-        Either `'sph'` or `'diag'` depending on if you want to maximize likelihood under the
-        spherical or diagonal Gaussian PCSS model.
-    flag_colinearity : bool, default=`True`
-        Whether or not to flag colinearity issues.
-    tol : float, defeault=`TOL`
-        Tolerance at which point we consider a variable to have zero variance.
-	
-    Returns 
-	-------
-	np.array
-        Objective values for each variable.
-    (np.array, np.array)
-        Indices where the residuals were below the specified tolerance.
+    Checks if the inputs to `greedy_css` meet the required specifications.
 	"""
 
-    diag = np.diag(Sigma_R)
-    resids = diag - (1/diag)[:, None] * np.square(Sigma_R)
-    np.fill_diagonal(resids, 1)
-    if np.any(resids < tol):
-      return None, np.where(resids < tol)
-    
-    if noise == 'sph':
-      np.fill_diagonal(resids, 0)
-      num_remaining = Sigma_R.shape[0] - 1
-      objective_values = np.log(diag) + num_remaining * np.log(np.sum(resids, axis=1)) if num_remaining > 0 else np.log(diag) 
-      return objective_values, (np.array([]), np.array([]))
+    n, p = Sigma.shape 
 
-    if noise == 'diag': 
-      objective_values = np.log(diag) + np.sum(np.log(resids), axis=1)
-      return objective_values, (np.array([]), np.array([]))
+    if not n == p:
+        raise ValueError("Sigma must be a square matrix.")
+  
+    if k is None and cutoffs is None:
+        raise ValueError("One of k or cutoff must not be None.")
+  
+    if k is not None and cutoffs is not None:
+        raise ValueError("Only one of k or cutoff can be None.")
 
-def sph_pcss_objective(Sigma_R, flag_colinearity=True, tol=TOL):
-    '''
-    Calls `pcss_objective` with `noise='sph'`.
-    '''
-    return pcss_objective(Sigma_R, noise='sph', flag_colinearity=flag_colinearity, tol=TOL)
+    if cutoffs is not None:
+        if (isinstance(cutoffs, (list, np.ndarray)) and not len(cutoffs) == p) or (not isinstance(cutoffs, (list, np.ndarray)) and  not isinstance(cutoffs, (int, np.integer, float)) ):
+            raise ValueError("Cutoffs must be a single value or length p.")
 
-def diag_pcss_objective(Sigma_R, flag_colinearity=True, tol=TOL):
-    '''
-    Calls `pcss_objective` with `noise='diag'`.
-    '''
-    return pcss_objective(Sigma_R, noise='diag', flag_colinearity=flag_colinearity, tol=TOL)
-    
-def populate_colinearity_errors(current_subset, additions=None, responses=None):
-    
+    if k is not None and not isinstance(k, (int, np.integer)):
+        raise ValueError("k must be an integer.")
+    if k is not None and (k <= 0 or k > p):
+        raise ValueError("k must be > 0 and <= p.")
+
+    set_include = set(include)
+    set_exclude = set(exclude)
+    if not isinstance(include, np.ndarray) or (include.dtype != 'int' and len(include) > 0) or not set_include.issubset(np.arange(p)): 
+        raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
+    if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
+        raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(set_exclude.intersection(set_include)) > 0:
+        raise ValueError("Include and exclude must be disjoint.")
+        
+    if len(exclude) == p:
+        raise ValueError("Cannot exclude everything.")
+    if k is not None and len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if k is not None and len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
+
+    return
+
+
+def greedy_css(Sigma,
+               k=None,
+               cutoffs=None,
+               include=np.array([]),
+               exclude=np.array([]),
+               tol=TOL):
+
     """
-    Given a current subset, additions, and responses, documents colinearity errors.
-
-    Parameters
-	----------
-	current_subset : np.array
-	    Currently selected subset. If `additions` and `responses` are `None` then currently selected 
-        subset itself should be colinear. 
-    additions : np.array, default='None'
-        Variables which when added to the currently selected subset allow the selected subset to perfectly
-        reconstruct the variable in `responses`
-    responses : np.array, default='None'
-        Variables which are perfectly predicted by the current subset 
-        (plus the corresponding addition if `adittions` is not `None`).
-	
-    Returns 
-	-------
-	List[ValueError]
-        List of ValueError objects detailing what the colinearity issues are. 
-	"""
-
-    if additions is None and responses is None:
-        return [ValueError("The variables " + str(current_subset) + " are colinear.")]
-    if additions is None:
-        return [ValueError("The variables " + str(current_subset) + " perfectly predict " + str(responses))]
-    else:
-        errors = []
-        for addition in set(additions):
-            errors.append(ValueError("The variables " + str(np.concatenate([current_subset, np.array([addition])])) + 
-                                     " perfectly predict " + str(responses[np.where(additions == addition)[0]])))
-        return errors 
-
-def greedy_subset_selection(Sigma, 
-                            k,
-                            objective,
-                            tol=TOL,
-                            flag_colinearity=False):
-   
-    """
-    Given a covariance `Sigma`, a subset size `k`, and an objective function `objective`
-    returns the greedily selected subset of variables `k` which minimize the objective. 
+    Given a '(p, p)`-shaped covariance matrix `Sigma` finds the greedily
+    selected subset of size k according to the CSS objective, or a large 
+    enough greedily selected subset so that the CSS objective is sufficiently
+    small. 
 
     Parameters
 	----------
 	Sigma : np.array
-	    A `(p, p)`-shaped covariance matrix. 
-    k : int
-        Size of subset to search for.
-    objective : Callable[np.array, bool, np.float]
-        A python function which defines the objective. On each iteration the variable which 
-        minimizes objective will be selected.
-    tol : float, defeault=`TOL`
+	    A `(p, p)`-shaped covariance matrix to perform subset selection with.
+    k : int, default=`None`
+        If not `None`, the number of variables to greedily select. Exactly one of
+        `k` and `cutoffs` can and must be `None`. 
+    cutoffs : float OR np.array, default=None
+        If a single value then we greedily select variables until the CSS objective value 
+        is <= this cutoff. If a length `p` array then the i-th entry is used as the cutoff for 
+        the greedily selected size-i subset  Exactly one of`k` and `cutoffs` can and must be `None`. 
+    include : np.array[int], default=np.array([])
+        A list of variables that must be included. 
+    exclude: np.array[int], default=np.array([])
+        A list of variables that must not be included.
+    tol : float, default=`TOL`
         Tolerance at which point we consider a variable to have zero variance.
-    flag_colinearity : bool, default=`True`
-        Whether or not to flag colinearity issues and terminate upon their happening. 
 	
     Returns 
 	-------
 	S : np.array
-        The selected subset, in order it was selected.
+        The greedily selected subset. 
     Sigma_R : np.array
-        The `(p, p)`-shaped residual covariance matrix resulting from regressing the selected subset
-        out of all the varibles (including themselves). 
-    errors : List[ValueError] 
-         List of ValueError objects detailing what the colinearity issues are. 
+        The '(p, p)'-shaped residual covariance corresponding to `S`. 
+
 	"""
-    
-    S = -1 * np.ones(k).astype(int)
+
+    check_greedy_css_inputs(Sigma=Sigma,
+                            k=k, 
+                            cutoffs=cutoffs, 
+                            include=include, 
+                            exclude=exclude, 
+                            tol=tol)
+
     Sigma_R = Sigma.copy()
     p = Sigma.shape[0]
+    S = -1 * np.ones(p).astype(int)
+
+    if isinstance(cutoffs, (int, np.integer, float)):
+        cutoffs = cutoffs * np.ones(p)
+
     idx_order = np.arange(p)
-    num_active=p
+    num_active = p
 
-    for i in range(k):
+    selected_enough = False
+    num_selected = 0
 
-      # subset to acvice variables
-      Sigma_R_active = Sigma_R[:num_active, :num_active] 
-      # compute objective values
-      obj_vals, colinearity_error_idxs = objective(Sigma_R_active, flag_colinearity=flag_colinearity, tol=tol) 
-      
-      if len(colinearity_error_idxs[0]) > 0:
-        return None, None, populate_colinearity_errors(S[:i], 
-                                                       idx_order[colinearity_error_idxs[0]], 
-                                                       idx_order[colinearity_error_idxs[1]])
-      # select next variable
-      j_star = random_argmin(obj_vals)
-      S[i] = idx_order[j_star]
+    while not selected_enough:
 
-      # regress off selected variable
-      regress_one_off_in_place(Sigma_R_active, j_star, tol=tol)
-      
-      # swap selected variable with last active position
-      swap_in_place(Sigma_R, [j_star], [num_active - 1], idx_order=idx_order)
-      # decrement number active 
-      num_active -= 1
-      
-      # swap any variables with < tol variance to bottom and update num active
-      if not flag_colinearity:
+        # subset to acvice variables
+        Sigma_R_active = Sigma_R[:num_active, :num_active]
+
+        if num_selected < len(include):
+            j_star = np.where(idx_order == include[num_selected])[0][0]
+
+            # If the include variables are colinear return a colinearity error
+            if j_star > num_active - 1:
+                warnings.warn("Variables " + str(include[:num_selected + 1]) + " that have been requested to be included are colinear.")
+                S[num_selected] = idx_order[j_star]
+                num_selected += 1
+                continue
+
+        else:
+            # compute objective values
+            obj_vals = css_score(Sigma_R_active, tol=tol)
+
+            # set the exclude objective values to infinity
+            obj_vals[np.in1d(idx_order[:num_active], exclude)] = np.inf
+            # select next variable
+            j_star = random_argmin(obj_vals)
+
+        S[num_selected] = idx_order[j_star]
+        num_selected += 1
+
+        # regress off selected variable
+        regress_one_off_in_place(Sigma_R_active, j_star, tol=tol)
+
+        # swap selected variable with last active position
+        swap_in_place(Sigma_R, [j_star], [num_active - 1], idx_order=idx_order)
+        # decrement number active
+        num_active -= 1
+
+        # swap any variables with < tol variance to bottom and update num active
         zero_idxs = np.where(np.diag(Sigma_R_active)[:num_active] < tol)[0]
         num_zero_idxs = len(zero_idxs)
         idxs_to_swap = np.arange(num_active - num_zero_idxs, num_active)
         swap_in_place(Sigma_R, zero_idxs, idxs_to_swap, idx_order=idx_order)
         num_active -= num_zero_idxs
-      
-      # terminate early if all variables are explained
-      if num_active == 0 and i != k - 1:
-        break
+
+        # continue if not enough included
+        if num_selected < len(include):
+            continue
+        # terminate if user requested k and k have been selected
+        if k is not None and num_selected == k:
+            selected_enough = True
+        # terminate if below user's cutoff
+        if cutoffs is not None and np.trace(Sigma_R) <= cutoffs[num_selected - 1]:
+            selected_enough = True
+         # terminate early if no variables left 
+        if set(idx_order[:num_active]).issubset(exclude) and not selected_enough:
+            if cutoffs is not None:
+                warnings.warn("Cutoff was not obtained by the selected subset, but no more variables can be added.")
+            if k is not None:
+                warnings.warn("A smaller subset sufficiently explained all the not excluded variables.")
+            selected_enough = True
 
     perm_in_place(Sigma_R, np.arange(p), np.argsort(idx_order))
-    
-    return S, Sigma_R, []
 
-def swapping_subset_selection(Sigma, 
+    return S[:num_selected], Sigma_R
+
+def check_swapping_css_inputs(Sigma,
                               k,
-                              objective,
-                              max_iter=100,
-                              S_init=None,
-                              tol=TOL,
-                              flag_colinearity=False):
-
+                              num_inits,
+                              max_iter,
+                              S_init,
+                              include,
+                              exclude,
+                              tol):
+    
     """
-    Given a covariance `Sigma`, a subset size `k`, and an objective function `objective`
-    returns the subset of variables `k` which minimize the objective selected by a gradient descent
-    like iterative swapping algorithm. 
-
-    Parameters
-	----------
-	Sigma : np.array
-	    A `(p, p)`-shaped covariance matrix. 
-    k : int
-        Size of subset to search for.
-    objective : Callable[np.array, bool, np.float]
-        A python function which defines the objective. On each iteration the variable which 
-        minimizes objective will be selected.
-    max_iter : int, default=`100`
-        Maximum number of iterations to run the swapping algorithm. If algorithm has not 
-        converged within `max_iter` iterations, the algorithm will terminate and provide 
-        results in its current state. In this case `converged` will be `False.
-    S_init : np.array, default=`None`
-        Intial subset to start the algorithm with. If not included, an initial subset is 
-        selected uniformly randomly.  
-    tol : float, default=`TOL`
-        Tolerance at which point we consider a variable to have zero variance.
-    flag_colinearity : bool, default=`True`
-        Whether or not to flag colinearity issues and terminate upon their happening. 
-	
-    Returns 
-	-------
-	S : np.array
-        The selected subset, in order it was selected.
-    Sigma_R : np.array
-        The `(p, p)`-shaped residual covariance matrix resulting from regressing the selected subset
-        out of all the varibles (including themselves). 
-    S_init : np.array
-        The inital subset that the algorithm starts with.
-    converged : bool
-        Whether the algorithm has converged. If `converged` is `False` and the `errors` list is non-empty 
-        then `S` and `Sigma_R` must be `None`. 
-    errors : List[ValueError]
-         List of ValueError objects detailing what the colinearity issues are. 
+    Checks if the inputs to `swapping_css` meet the required specifications.
 	"""
+    
+    n, p = Sigma.shape 
 
-    converged = False
+    if not n == p:
+        raise ValueError("Sigma must be a square matrix.")
+
+    if not isinstance(k, (int, np.integer)) or k <= 0 or k > p:
+        raise ValueError("k must be an integer > 0 and <= p.")
+    
+    if S_init is not None:
+        if not isinstance(S_init, np.ndarray) or S_init.dtype != 'int' or len(set(S_init)) != k or (not set(S_init).issubset(np.arange(p))):
+            raise ValueError("S_init must be a numpy array of k integers from 0 to p-1 inclusive.")
+        if not set(include).issubset(S_init):
+            raise ValueError("Include must be a subset of S_init.")
+        if len(set(exclude).intersection(S_init)) > 0:
+            raise ValueError("S_init cannot contain any elements in exlcude.")
+        
+    set_include = set(include)
+    set_exclude = set(exclude)
+    if not isinstance(include, np.ndarray) or (include.dtype != 'int' and len(include) > 0) or not set_include.issubset(np.arange(p)): 
+        raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
+    if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
+        raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(set_exclude.intersection(set_include)) > 0:
+        raise ValueError("Include and exclude must be disjoint.")
+
+    if len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
+
+    
+def swapping_css_with_init(Sigma,
+                           S_init,
+                           max_iter,
+                           include,
+                           exclude,
+                           tol=TOL):
+    
+    '''
+    Perform swapping CSS with a particular initialization. See `swapping_CSS` for a description 
+    of inputs. 
+    '''
+
+    k = len(S_init)
     p = Sigma.shape[0]
     d = p-k
+    include_set = set(include)
+
     idx_order = np.arange(p)
-    
-    if S_init is None:
-        S_init = np.random.choice(idx_order, k, replace=False)
-    elif len(S_init) != k:
-        raise ValueError("Initial subset must be of length k.")
-    
+
     Sigma_R = Sigma.copy()
     # these will always be the indices of the selected subset
     subset_idxs = np.arange(d, p)
-    # swap initial variables to bottom of Sigma 
+    # swap initial variables to bottom of Sigma
     swap_in_place(Sigma_R, subset_idxs, S_init, idx_order=idx_order)
     S = idx_order[d:].copy()
     Sigma_S = Sigma[:, S][S, :].copy()
-    invertible, Sigma_S_L = is_invertible(Sigma_S) 
-    
+    invertible, Sigma_S_L = is_invertible(Sigma_S)   
+
     if not invertible:
-        return None, None, S_init, converged, populate_colinearity_errors(S)
-    
+        return None, None, None 
+
     regress_off_in_place(Sigma_R, np.arange(d, p))
-    zero_idxs = np.where(np.diag(Sigma_R)[:d] <= tol)[0]
-    num_zero_idxs = len(zero_idxs)
-    
-    if flag_colinearity and num_zero_idxs > 0:
-        return None, None, S_init, converged, populate_colinearity_errors(S, responses=idx_order[zero_idxs])
 
     # number of completed iterations
     N = 0
-    # counter of how many consecutive times a selected variable was not swapped
+    # counter of how many consecutive times we have chose not to swap 
     not_replaced = 0
     # permutation which shifts the last variable in the subset to the top of the subset
     subset_idxs_permuted = np.concatenate([subset_idxs[1:], np.array([subset_idxs[0]])])
-    break_flag = False 
+    converged = False
 
-    while N < max_iter and (not break_flag):
+    while N < max_iter and (not converged):
         for i in range(k):
             S_0 = S[0]
-            # Remove first variable from selected subset 
-            T = S[1:]
 
-            # Update cholesky after removing first variable from subset 
-            Sigma_T_L = update_cholesky_after_removing_first(Sigma_S_L) 
+            # Update cholesky after removing first variable from subset
+            Sigma_T_L = update_cholesky_after_removing_first(Sigma_S_L)
 
-            # Update residual covariance after removing first variable from subset
-            v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
-            reordered_v = v[idx_order]
-            Sigma_R = Sigma_R + np.outer(reordered_v, reordered_v)/v[S_0]
+            if S_0 not in include_set:
+            
+                # Subest with first variable removed  from selected subset
+                T = S[1:]
 
-            # Swap first variable from subset to to top of residual matrix 
-            swap_in_place(Sigma_R, np.array([0]), np.array([d]), idx_order=idx_order)  
-        
-            # If not flag_colinearity, find indices of variables with zero variance
-            if not flag_colinearity:
+                # Update residual covariance after removing first variable from subset
+                v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
+                reordered_v = v[idx_order]
+                Sigma_R = Sigma_R + np.outer(reordered_v, reordered_v)/v[S_0]
+                
+                # Swap first variable from subset to to top of residual matrix
+                swap_in_place(Sigma_R, np.array([0]), np.array([d]), idx_order=idx_order)
+
+                # find indices of variables with zero variance
                 zero_idxs = np.where(np.diag(Sigma_R)[:(d + 1)] <= tol)[0]
                 num_zero_idxs = len(zero_idxs)
                 # In residual matrix, swap variables with zero indices to right above currently selected subset (of size k-1)
                 swap_in_place(Sigma_R, zero_idxs, np.arange(d + 1 - num_zero_idxs, d + 1), idx_order=idx_order)
+                
+                # update num_active
+                num_active = d + 1 - num_zero_idxs
+
+                # compute objectives and for active variables and find minimizers
+                obj_vals = css_score(Sigma_R[:num_active, :num_active], tol=tol)
+
+                # set the objective value to infinity for the excluded variables
+                obj_vals[np.in1d(idx_order[:num_active], exclude)] = np.inf
+
+                choices = np.flatnonzero(obj_vals == obj_vals.min())
+
+                # if removed variable is a choice, select it, otherwise select a random choice
+                if 0 in choices:
+                    not_replaced += 1
+                    j_star = 0
+                else:
+                    not_replaced = 0
+                    j_star = np.random.choice(choices)
+                
+                S_new = idx_order[j_star]
+                
+                # In residual covariance, regress selected variable off the remaining
+                #regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star) #alternative option
+                regress_one_off_in_place(Sigma_R[:num_active, :num_active], j_star)
+                # In residual covariance swap new choice to top of selected subset 
+                swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
+              
             else:
-                num_zero_idxs = 0
-        
-            # update num_active
-            num_active = d + 1 - num_zero_idxs 
-
-            # compute objectives and for active variables and find minimizers
-            obj_vals, colinearity_error_idxs = objective(Sigma_R[:num_active, :num_active], flag_colinearity=flag_colinearity, tol=tol)
-
-            if len(colinearity_error_idxs[0]) > 0:
-                return None, None, S_init, converged, populate_colinearity_errors(S[:i], 
-                                                                                  idx_order[colinearity_error_idxs[0]], 
-                                                                                  idx_order[colinearity_error_idxs[1]])
-        
-            choices = np.flatnonzero(obj_vals == obj_vals.min())
-
-            # if removed variable is a choice, select it, otherwise select a random choice
-            if 0 in choices:
-                not_replaced += 1
-                j_star = 0 
-            else:
-                not_replaced = 0
-                j_star = np.random.choice(choices)
-
+                S_new = S_0 
+            
             # Add new choice as the last variable in selected subset
-            S_new = idx_order[j_star]
             S[:k-1] = S[1:]
             S[k-1] = S_new
-            # Update cholesky after adding new choice as last variable in selected subset 
+            # Update cholesky after adding new choice as last variable in selected subset
             Sigma_S_L = update_cholesky_after_adding_last(Sigma_T_L, Sigma[S_new, S])
-            # In residual covariance, regress selected variable off the remaining
-            #regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star) #alternative option
-            regress_one_off_in_place(Sigma_R[:num_active, :num_active], j_star)
-            # In residual covariance swap new choice to top of selected subset and then permute selected subset
-            # so the new choice is at the bottom, reflecting S
-            swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
+            
+            # permute first variables in selected subset to the last variable in the residual matrix
             perm_in_place(Sigma_R, subset_idxs,  subset_idxs_permuted, idx_order=idx_order)
-        
-            if not_replaced == k:
+
+            if not_replaced == k - len(include):
                 converged=True
-                break_flag=True
                 break
 
         N += 1
 
     perm_in_place(Sigma_R, np.arange(p), np.argsort(idx_order))
-    return S, Sigma_R, S_init, converged, []
+    
+    return S, Sigma_R, converged 
 
-def compute_MLE_from_selected_subset(Sigma, S, Sigma_R=None, noise='sph', mu_MLE=None):
-
+def swapping_css(Sigma,
+                 k,
+                 num_inits=1, 
+                 max_iter=100,
+                 S_init=None,
+                 include=np.array([]),
+                 exclude=np.array([]),
+                 tol=TOL):
+   
     """
-    Given a covariance `Sigma` and selected subset `S` computes and returns the maximum
-    likelihood estimates under the Gaussian PCSS model. 
+    Given a `(p, p)`-covariance matrix `Sigma` uses iterative swapping to 
+    approximately find a size k that minimizes the CSS objective. 
 
     Parameters
 	----------
 	Sigma : np.array
-	    A `(p, p)`-shaped covariance matrix. 
-    S : np.array
-        The selected subset of size `k`. 
-    Sigma_R : np.array, default=`None`
-        The residual covariance after you regress the the selected variables in S
-        out of all the variables.
-    noise : str, default=`'sph'`
-        Either 'sph' or 'diag' depending on if you want maximum likelihood estimates
-        under the spherical or diagonal Gaussian PCSS model. 
-    mu_MLE : np.array, default=`None`
-        The sample mean of the observed data, if available. 
-        
+	    A `(p, p)`-shaped covariance matrix to perform subset selection with.
+    k : int, default=`None`
+        The number of variables to select. 
+    num_inits : int, default=1
+        Number of random initializations to try. Only relevant if `S_init` is not `None`.
+    max_iter : int, default=100
+        Maximum number of iterations for the swapping algorithm to achieve convergence. If 
+        the algorithm does not achieve converge it returns the best subset till that point.
+    S_init : np.array[int] 
+        Size `k` array of variables that serves as the initialization for the swapping algorithm.
+        If `None` then `num_inits` random initializations are tried.   
+    include : np.array[int], default=np.array([])
+        A list of variables that must be included. 
+    exclude: np.array[int], default=np.array([])
+        A list of variables that must not be included.
+    tol : float, default=`TOL`
+        Tolerance at which point we consider a variable to have zero variance.
+	
     Returns 
 	-------
-	MLE : Dict[str, np.array]
-        A dictionary containing the maximum likelihood estimates. The keys for the spherical Gaussian
-        PCSS model are `'mu_MLE'`, `'S_MLE'`, `'C_MLE'`, `'W_MLE'` and `'sigma_sq_MLE'`. The keys for the diagonal
-        Gaussian PCSS model are the same, but `'sigma_sq_MLE'` is replaced by `'D_MLE'`.
-    C_MLE_chol : np.array
-        The `(k, k)`-shaped Cholesky decomposition of the covariance of the selected subset. 
-    C_MLE_inv : np.array
-       The `(k, k)`-shaped inverse of the covariance of the selected subset. 
+	S : np.array
+        The selected subset. 
+    Sigma_R : np.array
+        The '(p, p)'-shaped residual covariance corresponding to `S`. 
+    S_init : np.array[int]
+        The initialization the resulted in the selected subset. 
+    converged : bool
+        Whether or not the algorithm achieved convergence. 
+	"""
+
+    check_swapping_css_inputs(Sigma=Sigma,
+                              k=k,
+                              num_inits=num_inits,
+                              max_iter=max_iter,
+                              S_init=S_init,
+                              include=include,
+                              exclude=exclude,
+                              tol=tol)
+    
+    best_converged = None
+    best_S = None
+    best_S_init = None 
+    best_Sigma_R = None
+    best_obj_val = np.inf 
+    not_include = np.array([idx for idx in complement(Sigma.shape[0], include) if idx not in set(exclude)])
+    
+    if len(include) > 0:
+        invertible, _ = is_invertible(Sigma[include, :][:, include], tol=tol)
+        if not invertible:
+            warnings.warn("The variables requested to be included are colinear.")
+            return best_S, best_Sigma_R, best_S_init, best_converged   
+    
+    no_initialization = (S_init is None)
+    if not no_initialization:
+        num_inits = 1
+
+    for _ in range(num_inits):
+        if no_initialization:
+            S_init = np.concatenate([include, np.random.choice(not_include, k-len(include), replace=False)]).astype(int)
+
+        S, Sigma_R, converged  = swapping_css_with_init(Sigma=Sigma,
+                                                        S_init=S_init,
+                                                        max_iter=max_iter, 
+                                                        include=include,
+                                                        exclude=exclude,
+                                                        tol=TOL)
+        if S is None:
+            continue 
+      
+        obj_val = np.trace(Sigma_R)
+        if obj_val < best_obj_val:
+            best_obj_val = obj_val 
+            best_S = S
+            best_S_init = S_init
+            best_Sigma_R = Sigma_R
+            best_converged = converged 
+
+    if best_S is None:
+        warnings.warn("All the initializations tried were colinear.")
+    return best_S, best_Sigma_R, best_S_init, best_converged
+
+def check_exhuastive_css_inputs(Sigma, 
+                                k, 
+                                include,
+                                exclude,
+                                show_progress,
+                                tol):
+    
+    """
+    Checks if the inputs to `exhaustive_css` meet the required specifications.
 	"""
     
-    if Sigma_R is None:
-        Sigma_R = Sigma.copy()
-        regress_off_in_place(Sigma_R, S)
+    n, p = Sigma.shape 
 
+    if not n == p:
+        raise ValueError("Sigma must be a square matrix.")
+
+    if not isinstance(k, (int, np.integer)) or k <= 0 or k > p:
+        raise ValueError("k must be an integer > 0 and <= p.")
+        
+    set_include = set(include)
+    set_exclude = set(exclude)
+    if not isinstance(include, np.ndarray) or (include.dtype != 'int' and len(include) > 0) or not set_include.issubset(np.arange(p)): 
+        raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
+    if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
+        raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(set_exclude.intersection(set_include)) > 0:
+        raise ValueError("Include and exclude must be disjoint.")
+
+    if len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
+    
+
+def exhaustive_css(Sigma, 
+                   k, 
+                   include=np.array([]),
+                   exclude=np.array([]),
+                   show_progress=True,
+                   tol=TOL):
+    
+    """
+    Given a `(p, p)`-covariance matrix `Sigma` exhaustively searches
+    for the size k that minimizes the CSS objective. 
+
+    Parameters
+	----------
+	Sigma : np.array
+	    A `(p, p)`-shaped covariance matrix to perform subset selection with.
+    k : int, default=`None`
+        The number of variables to select.   
+    include : np.array[int], default=np.array([])
+        A list of variables that must be included. 
+    exclude: np.array[int], default=np.array([])
+        A list of variables that must not be included.
+    show_progress : bool
+        If `True`, informs the user of the number of subsets being searched over
+        and shows a progress bar.
+    tol : float, default=`TOL`
+        Tolerance at which point we consider a variable to have zero variance.
+	
+    Returns 
+	-------
+	S : np.array
+        The selected subset. 
+    Sigma_R : np.array
+        The '(p, p)'-shaped residual covariance corresponding to `S`. 
+    S_init : np.array[int]
+        The initialization the resulted in the selected subset. 
+    converged : bool
+        Whether or not the algorithm achieved convergence. 
+	"""
+    
     p = Sigma.shape[0]
-    k = len(S)
 
-    S_ord = np.sort(S)
-    S_ord_comp = complement(p, S_ord)
+    check_exhuastive_css_inputs(Sigma=Sigma, 
+                                k=k, 
+                                include=include,
+                                exclude=exclude,
+                                show_progress=show_progress,
+                                tol=tol)
 
-    C_MLE = Sigma[:, S_ord][S_ord, :]
+    best_S = None
+    best_Sigma_R = None
+    best_obj_val = np.inf 
 
-    C_MLE_chol = np.linalg.cholesky(C_MLE) 
-    C_MLE_inv = solve_with_cholesky(C_MLE_chol, np.eye(k))
-    W_MLE = Sigma[S_ord_comp, :][:, S_ord] @ C_MLE_inv
+    options = np.array([idx for idx in np.arange(p) if idx not in np.concatenate([include, exclude])])
+    to_add = k - len(include)
+    S = np.concatenate([include, -1*np.ones(to_add)]).astype(int)
 
-    if noise == 'sph':
-        sigma_sq_MLE = np.sum(np.diag(Sigma_R)[S_ord_comp]) /(p - k) 
-    if noise == 'diag':
-        D_MLE = np.diag(Sigma_R)[S_ord_comp]
+    if show_progress:
+        print("Iterating over " + str(math.comb(len(options), to_add)) + " different subsets...")
+        iterator = tqdm.tqdm(itertools.combinations(options, to_add))
+    else:
+        iterator = itertools.combinations(options, to_add)
+
+    for  remaining in iterator:
+        S[len(include):] = np.array(remaining).astype(int)
+        Sigma_R = regress_off(Sigma, S, tol=tol)
+        obj_val = np.trace(Sigma_R)
+        if obj_val < best_obj_val:
+            best_obj_val = obj_val
+            best_S = S
+            best_Sigma_R = Sigma_R
     
-    if noise == 'sph':
-        MLE = {'mu_MLE': mu_MLE,
-               'S_MLE': S_ord,
-               'C_MLE': C_MLE,
-               'W_MLE': W_MLE,
-               'sigma_sq_MLE': sigma_sq_MLE}
-    elif noise == 'diag':
-        MLE = {'mu_MLE': mu_MLE,
-               'S_MLE': S_ord,
-               'C_MLE': C_MLE,
-               'W_MLE': W_MLE,
-               'D_MLE': D_MLE}
+    return best_S, best_Sigma_R 
     
-    return MLE, C_MLE_chol, C_MLE_inv
-
-def noise_from_MLE(MLE):
-
-    """
-    Given dictionary of MLEs, returns 'sph' if 'sigma_sq_MLE' is a key in MLE
-    and 'diag' if 'D_MLE' is a key in MLE. 
-    """
     
-    if 'sigma_sq_MLE' in MLE.keys(): 
-        noise = 'sph'
-    if 'D_MLE' in MLE.keys():
-        noise = 'diag'
-    return noise
-
-def compute_log_det_Sigma_MLE(MLE, C_MLE_chol=None):
-  
-    """
-    Returns log determinant of the MLE for Sigma implied by `MLE`, a dictionary of 
-    maximum likelihood estimates under the spherical or digaonal Gaussian PCSS model. 
-  
-    Parameters
-    ----------
-	MLE : Dict[str, np.array]
-        A dictionary containing the maximum likelihood estimates. The keys for the spherical Gaussian
-        PCSS model are `'mu_MLE'`, `'S_MLE'`, `'C_MLE'`, `'W_MLE'` and `'sigma_sq_MLE'`. The keys for the diagonal
-        Gaussian PCSS model are the same, but `'sigma_sq_MLE'` is replaced by `'D_MLE'`. 
-    C_MLE_chol : np.array, default=`None` 
-        The Cholesky decomposition of MLE for C
-        
-    Returns 
-	-------
-	float
-        The log determinant of the MLE for Sigma
-	"""
-
-    noise = noise_from_MLE(MLE)
-
-    if C_MLE_chol is None:
-        C_MLE_chol = np.linalg.cholesky(MLE['C_MLE']) 
-  
-    if noise == 'sph':
-        return np.sum(np.log(np.square(np.diag(C_MLE_chol)))) + MLE['W_MLE'].shape[0] * np.log(MLE['sigma_sq_MLE'])
-    if noise == 'diag':
-        return np.sum(np.log(np.square(np.diag(C_MLE_chol)))) + np.sum(np.log(MLE['D_MLE']))
-    
-def compute_Sigma_MLE_inv(MLE, C_MLE_inv=None):
-    
-    """
-    Returns the inverse of the MLE for `(p, p)`-shaped Sigma implied by `MLE`, a dictionary of 
-    maximum likelihood estimates under the spherical or digaonal Gaussian PCSS model, 
-    in blocks.  
-  
-    Parameters
-    ----------
-	MLE : Dict[str, np.array]
-        A dictionary containing the maximum likelihood estimates. The keys for the spherical Gaussian
-        PCSS model are `'mu_MLE'`, `'S_MLE'`, `'C_MLE'`, `'W_MLE'` and `'sigma_sq_MLE'`. The keys for the diagonal
-        Gaussian PCSS model are the same, but `'sigma_sq_MLE'` is replaced by `'D_MLE'`. 
-    C_MLE_inv : np.array, default=`None` 
-        The `(k, k)`-shaped inverse of the MLE for C
-        
-    Returns 
-	-------
-    top_left_block : np.array
-        The `(k, k)`-shaped top left block of the inverse of the MLE for Sigma, supposing the variables are sorted 
-        such that the selected subset is ordered and comes first, and then the remaining variables come in order after.
-    bottom_left_block : np.array
-        The `(p-k, k)`-shaped bottom left block of the inverse of the MLE for Sigma, supposing the same ordering for the variables
-        as above.  
-    bottom_right_block : np.array
-        The `(p-k,)`-shaped diagonal of the bottom right block of the inverse of the MLE for Sigma, supposing the same ordering 
-        for the variables as above.  
-	"""
-  
-    noise = noise_from_MLE(MLE)
-
-    if C_MLE_inv is None:
-        C_MLE_inv = np.linalg.inv(MLE['C_MLE'])
-
-    if noise == 'sph':
-        bottom_right_block = 1/MLE['sigma_sq_MLE'] * np.ones(MLE['W_MLE'].shape[0])
-    if noise == 'diag':
-        bottom_right_block = 1/MLE['D_MLE']
-  
-    bottom_left_block = -1 * bottom_right_block[:, None] * MLE['W_MLE']
-    top_left_block = C_MLE_inv -  MLE['W_MLE'].T @ bottom_left_block
-
-    return top_left_block, bottom_left_block, bottom_right_block 
-
-def compute_Sigma_MLE_chol(MLE, C_MLE_chol=None):
-
-    """
-    Returns the Cholesky of the MLE for `(p, p)`-shaped Sigma implied by `MLE`, a dictionary of 
-    maximum likelihood estimates under the spherical or digaonal Gaussian PCSS model, in blocks.  
-  
-    Parameters
-    ----------
-	MLE : Dict[str, np.array]
-        A dictionary containing the maximum likelihood estimates. The keys for the spherical Gaussian
-        PCSS model are `'mu_MLE'`, `'S_MLE'`, `'C_MLE'`, `'W_MLE'` and `'sigma_sq_MLE'`. The keys for the diagonal
-        Gaussian PCSS model are the same, but `'sigma_sq_MLE'` is replaced by `'D_MLE'`. 
-    C_MLE_chol : np.array, default=`None` 
-        The `(k, k)`-shaped cholesky of the MLE for C
-        
-    Returns 
-	-------
-    top_left_block : np.array
-        The `(k, k)`-shaped top left block of the Cholesky of the MLE for Sigma, supposing the variables are sorted 
-        such that the selected subset is ordered and comes first, and then the remaining variables come in order after.
-    bottom_left_block : np.array
-        The `(p-k, k)`-shaped bottom left block of the Cholesky of the MLE for Sigma, supposing the same ordering for the variables
-        as above.  
-    bottom_right_block : np.array
-        The `(p-k,)`-shaped diagonal of the bottom right block of the Cholesky of the MLE for Sigma, supposing the same ordering 
-        for the variables as above.  
-	"""
-
-    noise = noise_from_MLE(MLE)
-  
-    if C_MLE_chol is None:
-        C_MLE_chol = np.linalg.cholesky(MLE['C_MLE'])
-  
-    if noise == 'sph':
-        bottom_right_block = np.sqrt(MLE['sigma_sq_MLE']) * np.ones(MLE['W_MLE'].shape[0])
-    if noise == 'diag':
-        bottom_right_block = np.sqrt(MLE['D_MLE'])
-
-    top_left_block = C_MLE_chol.copy()
-    bottom_left_block = MLE['W_MLE'] @ C_MLE_chol
-
-    return top_left_block, bottom_left_block, bottom_right_block 
-
-def compute_in_sample_mean_log_likelihood(p, log_det_Sigma_MLE):
-    """
-    Computes the mean in sample log-likelihood of Gaussian data given the
-    log determinant of the maximum likelihood estimate of the covariance
-    and the dimension of the data.
-  
-    Parameters
-    ----------
-   	p : int
-        Dimension of the covariance matrix. 
-    log_det_Sigma_MLE : float
-        The log determinant of the maximum likelihood estimate of the covariance. 
-        
-    Returns 
-	-------
-    float
-        The mean in sample log-likelihood of the data under the Gaussian model. 
-	"""
-    return -1/2*(p * np.log(2 * np.pi) + p + log_det_Sigma_MLE)
