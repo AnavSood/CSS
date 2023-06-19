@@ -3,6 +3,11 @@ from scipy import stats
 from pycss.subset_selection import *
 from pycss.utils import *
 
+#####################################################################
+#### MORE TESTING FOR THE ACTUAL SUBSET SELECTION FUNCTIONS #########
+#### CAN BE FOUND IN THE NOTEBOOK testing_subset_selection.ipynb ####
+#####################################################################
+
 def get_equicorrelated_matrix(p, rho):
     return rho * np.ones((p, p)) + (1 - rho) * np.eye(p)
 
@@ -274,6 +279,34 @@ def test_swapping_css():
     assert(converged)
     assert(set(S) == set(np.arange(p-k, p)))
 
+def test_swapping_order():
+    eps=0.05
+    p=6
+    Sigma = np.diag(np.ones(p))
+    Sigma[2, 0], Sigma[0, 2], Sigma[2, 1], Sigma[1, 2] = 1-eps, 1-eps, 1-eps, 1-eps
+    Sigma[5, 3], Sigma[3, 5], Sigma[5, 4], Sigma[4, 5] = 1-eps, 1-eps, 1-eps, 1-eps
+   
+    S_init = np.array([1, 2])
+    S, _, _, converged = swapping_css(Sigma, k=2, S_init=S_init)
+    assert(np.all(S == S_init))
+    assert(converged)
+
+    S_init = np.array([4, 5])
+    S, _, _, converged = swapping_css(Sigma, k=2, S_init=S_init)
+    assert(np.all(S == S_init))
+    assert(converged)
+
+    S_init = np.array([1, 4])
+    S, _, _, converged = swapping_css(Sigma, k=2, S_init=S_init)
+    assert(set(S) == set(np.array([4, 5])))
+    assert(converged)
+
+    S_init = np.array([4, 1])
+    S, _, _, converged = swapping_css(Sigma, k=2, S_init=S_init)
+    assert(set(S) == set(np.array([1, 2])))
+    assert(converged)
+
+
 def test_swapping_and_greedy_agree():
     p = 100
     k = 1
@@ -368,5 +401,71 @@ def test_exhaustive_css():
     assert(np.all(Sigma_R == correct_Sigma_R))
 
 
+def test_subset_factor_score():
+    Sigma_R = np.ones((2, 2))
+    scores, errors = subset_factor_score(Sigma_R, tol=TOL)
+    assert(scores is None)
+    assert(len(errors[0]) == 2)
+    assert(len(errors[1]) == 2)
 
+    p = 4
+    rho = 1/2
+    Sigma_R = get_equicorrelated_matrix(p, rho)
+    obj_vals, errors = subset_factor_score(Sigma_R, tol=TOL)
+    print(errors)
+    assert(np.all(obj_vals == (p-1)*(np.log(1 - rho**2)) * np.ones(p)))
+    assert(len(errors[0]) == 0)
+    assert(len(errors[1]) == 0)
 
+def test_greedy_factor_subset_selection():
+    p = 5
+    cutoffs = -np.inf* np.ones(p + 1)
+    Sigma = np.ones((p, p))
+    include = np.array([0, 1])
+    S, reject = greedy_subset_factor_selection(Sigma, cutoffs=cutoffs, tol=TOL, include=include )
+    assert(reject == False)
+    assert(np.all(S == include))
+
+    S, reject = greedy_subset_factor_selection(Sigma, cutoffs=cutoffs, tol=TOL)
+    assert(reject == False)
+    assert(len(S) == 1)
+
+    rho = 1/2
+    Sigma = np.zeros((p, p))
+    Sigma[0, 0] = 1
+    Sigma[0, 1:] = rho
+    Sigma[1:, 0] = rho 
+    Sigma[1:, 1:] = np.diag(np.ones(p-1)) + Sigma[1:, 0].reshape((p-1 ,1)) @ Sigma[0, 1:].reshape((1 ,p-1))
+
+    S, reject = greedy_subset_factor_selection(Sigma, cutoffs=np.zeros(p+1), tol=TOL)
+    assert(reject == False)
+    assert(np.all(S == np.array([0])))
+
+def test_swapping_subset_factor_selection():
+    p = 5
+    k=3
+    cutoffs = -np.inf* np.ones(p + 1)
+    Sigma = np.ones((p, p))
+    include = np.array([0, 1])
+    S, reject = swapping_subset_factor_selection(Sigma, k=3, cutoff=-np.inf, tol=TOL, include=include)
+    assert(reject == False)
+    assert(len(S) == k)
+    assert(set(include).issubset(S))
+
+    S_init=np.array([0, 1, 2])
+    S, reject = swapping_subset_factor_selection(Sigma, k=3, S_init=S_init, cutoff=-np.inf, tol=TOL)
+    assert(reject == False)
+    assert(np.all(S == S_init))
+
+    rho = 1/2
+    Sigma = np.zeros((p, p))
+
+    Sigma[0, 0] = 1
+    Sigma[1, 1] = 1
+    Sigma[:2, 2:] = rho
+    Sigma[2:, :2] = rho 
+    Sigma[2:, 2:] = np.diag(np.ones(p-2)) + Sigma[2:, :2] @ Sigma[:2, 2:]
+
+    S, reject = swapping_subset_factor_selection(Sigma, k=2, S_init=np.array([2, 0]), cutoff=0, tol=TOL)
+    assert(reject == False)
+    assert(set(S) == set(np.array([0, 1])))
