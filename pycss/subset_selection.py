@@ -180,7 +180,7 @@ def regress_off(Sigma, S, tol=TOL):
     '''
 
     for j in S:
-        Sigma = regress_one_off(Sigma, j, tol)
+        Sigma = regress_one_off(Sigma, j, tol=tol)
     return Sigma 
 
 def update_cholesky_after_removing_first(L):
@@ -486,8 +486,8 @@ def greedy_css(Sigma,
         # regress off selected variable
         regress_one_off_in_place(Sigma_R_active, j_star, tol=tol)
 
-        # swap selected variable with last active position
-        swap_in_place(Sigma_R, [j_star], [num_active - 1], idx_order=idx_order)
+        # swap so selected variable is in last active position
+        swap_in_place(Sigma_R, [num_active - 1], [j_star], idx_order=idx_order)
         # decrement number active
         num_active -= 1
 
@@ -495,7 +495,7 @@ def greedy_css(Sigma,
         zero_idxs = np.where(np.diag(Sigma_R_active)[:num_active] < tol)[0]
         num_zero_idxs = len(zero_idxs)
         idxs_to_swap = np.arange(num_active - num_zero_idxs, num_active)
-        swap_in_place(Sigma_R, zero_idxs, idxs_to_swap, idx_order=idx_order)
+        swap_in_place(Sigma_R, idxs_to_swap, zero_idxs, idx_order=idx_order)  # order of idxs1 and idxs2 is important!
         num_active -= num_zero_idxs
 
         # continue if not enough included
@@ -574,7 +574,7 @@ def swapping_css_with_init(Sigma,
     Performs swapping CSS with a particular initialization. See `swapping_CSS` for a description 
     of inputs. 
     '''
-
+    
     k = len(S_init)
     p = Sigma.shape[0]
     d = p-k
@@ -586,15 +586,16 @@ def swapping_css_with_init(Sigma,
     # these will always be the indices of the selected subset
     subset_idxs = np.arange(d, p)
     # swap initial variables to bottom of Sigma
-    swap_in_place(Sigma_R, subset_idxs, S_init, idx_order=idx_order)
+    swap_in_place(Sigma_R, subset_idxs, S_init, idx_order=idx_order) #order of idxs1 and idxs2 is important!
     S = idx_order[d:].copy()
-    Sigma_S = Sigma[:, S][S, :].copy()
+    Sigma_S = Sigma[:, S][S, :]
     invertible, Sigma_S_L = is_invertible(Sigma_S)   
 
     if not invertible:
         return None, None, None 
 
-    regress_off_in_place(Sigma_R, np.arange(d, p))
+    #regress out original subset
+    regress_off_in_place(Sigma_R, np.arange(d, p), tol=tol)
 
     # number of completed iterations
     N = 0
@@ -613,8 +614,8 @@ def swapping_css_with_init(Sigma,
 
             if S_0 not in include_set:
             
-                # Subest with first variable removed  from selected subset
-                T = S[1:]
+                # Subset with first variable removed  from selected subset
+                T = S[1:].copy()
 
                 # Update residual covariance after removing first variable from subset
                 v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
@@ -628,8 +629,8 @@ def swapping_css_with_init(Sigma,
                 zero_idxs = np.where(np.diag(Sigma_R)[:(d + 1)] <= tol)[0]
                 num_zero_idxs = len(zero_idxs)
                 # In residual matrix, swap variables with zero indices to right above currently selected subset (of size k-1)
-                swap_in_place(Sigma_R, zero_idxs, np.arange(d + 1 - num_zero_idxs, d + 1), idx_order=idx_order)
-                
+                swap_in_place(Sigma_R, np.arange(d + 1 - num_zero_idxs, d + 1), zero_idxs, idx_order=idx_order) #order of idxs1 and idxs2 is important!
+
                 # update num_active
                 num_active = d + 1 - num_zero_idxs
 
@@ -655,7 +656,7 @@ def swapping_css_with_init(Sigma,
                 #regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star) #alternative option
                 regress_one_off_in_place(Sigma_R[:num_active, :num_active], j_star)
                 # In residual covariance swap new choice to top of selected subset 
-                swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
+                swap_in_place(Sigma_R, np.array([d]), np.array([j_star]), idx_order=idx_order)
               
             else:
                 S_new = S_0 
@@ -663,16 +664,17 @@ def swapping_css_with_init(Sigma,
             # Add new choice as the last variable in selected subset
             S[:k-1] = S[1:]
             S[k-1] = S_new
+
             # Update cholesky after adding new choice as last variable in selected subset
             Sigma_S_L = update_cholesky_after_adding_last(Sigma_T_L, Sigma[S_new, S])
-            
+
             # permute first variables in selected subset to the last variable in the residual matrix
             perm_in_place(Sigma_R, subset_idxs,  subset_idxs_permuted, idx_order=idx_order)
-
+                
             if not_replaced == k - len(include):
                 converged=True
                 break
-
+       
         N += 1
 
     perm_in_place(Sigma_R, np.arange(p), np.argsort(idx_order))
@@ -768,9 +770,9 @@ def swapping_css(Sigma,
         obj_val = np.trace(Sigma_R)
         if obj_val < best_obj_val:
             best_obj_val = obj_val 
-            best_S = S
-            best_S_init = S_init
-            best_Sigma_R = Sigma_R
+            best_S = S.copy()
+            best_S_init = S_init.copy()
+            best_Sigma_R = Sigma_R.copy()
             best_converged = converged 
 
     if best_S is None:
@@ -879,8 +881,8 @@ def exhaustive_css(Sigma,
         obj_val = np.trace(Sigma_R)
         if obj_val < best_obj_val:
             best_obj_val = obj_val
-            best_S = S
-            best_Sigma_R = Sigma_R
+            best_S = S.copy()
+            best_Sigma_R = Sigma_R.copy()
     
     return best_S, best_Sigma_R 
     
@@ -1034,8 +1036,8 @@ def greedy_subset_factor_selection(Sigma,
         # regress off selected variable
         regress_one_off_in_place(Sigma_R_active, j_star, tol=tol)
 
-        # swap selected variable with last active position
-        swap_in_place(Sigma_R, [j_star], [num_active - 1], idx_order=idx_order)
+        # swap so selected variable is in last active position
+        swap_in_place(Sigma_R, [num_active - 1], [j_star], idx_order=idx_order)
         # decrement number active
         num_active -= 1
 
@@ -1070,7 +1072,7 @@ def greedy_subset_factor_selection(Sigma,
 
     return S[:num_selected], reject
 
-def check_swapping_subest_factor_inputs(Sigma,
+def check_swapping_subset_factor_inputs(Sigma,
                                         k,
                                         cutoff, 
                                         max_iter,
@@ -1153,9 +1155,9 @@ def swapping_subset_factor_with_init(Sigma,
     # these will always be the indices of the selected subset
     subset_idxs = np.arange(d, p)
     # swap initial variables to bottom of Sigma
-    swap_in_place(Sigma_R, subset_idxs, S_init, idx_order=idx_order)
+    swap_in_place(Sigma_R, subset_idxs, S_init, idx_order=idx_order) #order of idxs1 and idxs2 is important!
     S = idx_order[d:].copy()
-    Sigma_S = Sigma[:, S][S, :].copy()
+    Sigma_S = Sigma[:, S][S, :]
     invertible, Sigma_S_L = is_invertible(Sigma_S)   
 
     if not invertible:
@@ -1163,7 +1165,7 @@ def swapping_subset_factor_with_init(Sigma,
         reject = False
         return S_init, reject, -np.inf  
 
-    regress_off_in_place(Sigma_R, np.arange(d, p))
+    regress_off_in_place(Sigma_R, np.arange(d, p), tol=tol)
     
     where_zeros = np.where(np.diag(Sigma_R)[:d] < tol)[0]
     if len(where_zeros > 0):
@@ -1189,8 +1191,8 @@ def swapping_subset_factor_with_init(Sigma,
 
             if S_0 not in include_set:
             
-                # Subest with first variable removed from selected subset
-                T = S[1:]
+                # Subset with first variable removed from selected subset
+                T = S[1:].copy()
 
                 # Update residual covariance after removing first variable from subset
                 v = Sigma[:, S_0] - Sigma[:, T] @ solve_with_cholesky(Sigma_T_L, Sigma[T, S_0]) if k > 1 else Sigma[:, S_0]
@@ -1227,13 +1229,13 @@ def swapping_subset_factor_with_init(Sigma,
                 # In residual covariance, regress selected variable off the remaining
                 regress_one_off_in_place(Sigma_R[:(d+1), :(d+1)], j_star)
                 # In residual covariance swap new choice to top of selected subset 
-                swap_in_place(Sigma_R, np.array([j_star]), np.array([d]), idx_order=idx_order)
+                swap_in_place(Sigma_R, np.array([d]),  np.array([j_star]), idx_order=idx_order)
               
             else:
                 S_new = S_0 
             
             # Add new choice as the last variable in selected subset
-            S[:k-1] = S[1:]
+            S[:k-1] = S[1:].copy()
             S[k-1] = S_new
             # Update cholesky after adding new choice as last variable in selected subset
             Sigma_S_L = update_cholesky_after_adding_last(Sigma_T_L, Sigma[S_new, S])
@@ -1312,7 +1314,7 @@ def swapping_subset_factor_selection(Sigma,
         
 	"""
     
-    check_swapping_subest_factor_inputs(Sigma,
+    check_swapping_subset_factor_inputs(Sigma,
                                         k,
                                         cutoff, 
                                         max_iter,
@@ -1358,7 +1360,136 @@ def swapping_subset_factor_selection(Sigma,
             reject = reject
 
         if log_det < best_log_det:
-            best_S = S
+            best_S = S.copy()
             best_log_det = log_det 
 
+    return best_S, reject 
+
+def check_exhuastive_subset_factor_inputs(Sigma, 
+                                          k, 
+                                          cutoff, 
+                                          include,
+                                          exclude,
+                                          find_minimizer,
+                                          show_progress,
+                                          tol):
+    
+    """
+    Checks if the inputs to `exhaustive_subset_factor_selection` meet the required specifications.
+	"""
+    
+    n, p = Sigma.shape 
+
+    if not n == p:
+        raise ValueError("Sigma must be a square matrix.")
+
+    if not isinstance(k, (int, np.integer)) or k <= 0 or k > p:
+        raise ValueError("k must be an integer > 0 and <= p.")
+        
+    set_include = set(include)
+    set_exclude = set(exclude)
+    if not isinstance(include, np.ndarray) or (include.dtype != 'int' and len(include) > 0) or not set_include.issubset(np.arange(p)): 
+        raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
+    if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
+        raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(set_exclude.intersection(set_include)) > 0:
+        raise ValueError("Include and exclude must be disjoint.")
+
+    if len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
+    
+
+def exhaustive_subset_factor_selection(Sigma, 
+                                       k, 
+                                       cutoff, 
+                                       include=np.array([]),
+                                       exclude=np.array([]),
+                                       show_progress=True,
+                                       find_minimizer=False, 
+                                       tol=TOL):
+    
+    """
+    Given a `(p, p)`-covariance matrix `Sigma` exhaustively searches
+    for the size k that results in the lowest value of log determinant of 
+    diagonal of residual covariance matrix plus log determinant of covariance
+    of selected subset.  
+
+    Parameters
+	----------
+	Sigma : np.array
+	    A `(p, p)`-shaped covariance matrix to perform subset selection with.
+    k : int, default=`None`
+        The number of variables to select. 
+    cutoff : float
+        If the corresponding log determinant is larger than the cutoff then we reject  
+    include : np.array[int], default=np.array([])
+        A list of variables that must be included. 
+    exclude: np.array[int], default=np.array([])
+        A list of variables that must not be included.
+    find_minimizer : bool
+        If `True`, continues to search for minimizer if subset that achieves log determinant
+        below the cutoff is found.
+    show_progress : bool
+        If `True`, informs the user of the number of subsets being searched over
+        and shows a progress bar.
+    tol : float, default=`TOL`
+        Tolerance at which point we consider a variable to have zero variance.
+	
+    Returns 
+	-------
+	S : np.array
+        The greedily selected subset. 
+    reject : bool
+        Whether the subset's corresponding log determinant is less than or equal to 
+        the corresponding cutoff. 
+        
+	"""
+    
+    p = Sigma.shape[0]
+
+    check_exhuastive_subset_factor_inputs(Sigma=Sigma, 
+                                          k=k, 
+                                          cutoff=cutoff, 
+                                          include=include,
+                                          exclude=exclude,
+                                          find_minimizer=False,
+                                          show_progress=show_progress,
+                                          tol=tol)
+
+    best_S = None
+    best_log_det = np.inf 
+    reject = True 
+
+    options = np.array([idx for idx in np.arange(p) if idx not in np.concatenate([include, exclude])])
+    to_add = k - len(include)
+    S = np.concatenate([include, -1*np.ones(to_add)]).astype(int)
+
+    if show_progress:
+        print("Iterating over " + str(math.comb(len(options), to_add)) + " different subsets...")
+        iterator = tqdm.tqdm(itertools.combinations(options, to_add))
+    else:
+        iterator = itertools.combinations(options, to_add)
+
+    for  remaining in iterator:
+        S[len(include):] = np.array(remaining).astype(int)
+        Sigma_R = regress_off(Sigma, S, tol=tol)
+        invertible, Sigma_S_L =  is_invertible(Sigma[:, S][ S, :])
+        S_comp = complement(p, S)
+        if  not invertible or not np.all(np.diag(Sigma_R)[S_comp]) > tol:
+            warnings.warn("Subset " + str(S) + " is colinear or perfectly explains some other variables.")
+            reject = False
+            return S, reject
+        
+        log_det =  np.sum(np.log((np.square(np.diag(Sigma_S_L))))) + np.sum(np.log(np.diag(Sigma_R)[S_comp]))
+        if log_det <= cutoff:
+            reject = False
+            if not find_minimizer:
+                return S, reject
+
+        if log_det < best_log_det:
+            best_log_det = log_det
+            best_S = S.copy() 
+    
     return best_S, reject 

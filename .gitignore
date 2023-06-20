@@ -4,4 +4,3 @@ data/factor_covariance.csv
 data/factor_exposure.csv
 data/specific_variance.csv
 data/topic_exposure.csv 
-notebooks/blackrock_css.ipynb
