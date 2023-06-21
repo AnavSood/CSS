@@ -59,7 +59,7 @@ def group_lasso_with_missing_data(X, k, solver='CLARABEL', tol=1e-10):
             lower_bound = curr_lamb 
             curr_lamb = (upper_bound + curr_lamb)/2
 
-def get_masked_covariance(X):
+def get_projected_covariance_from_missing_data(X):
     n, p = X.shape
     mu = np.nanmean(X, axis=0)
     Sigma_hat = np.zeros((p, p))
@@ -79,53 +79,30 @@ def get_masked_covariance(X):
     
     return Sigma_hat 
 
-def masked_css_with_missing_data(X, k, num_inits=1, method='swap'):
-    Sigma_hat = get_masked_covariance(X)
+def covariance_css_with_missing_data(X, k, method='swap', num_inits=1):
+    Sigma_hat = get_projected_covariance_from_missing_data(X)
     p = Sigma_hat.shape[0]
-    best_S = np.nan
-    best_obj = np.inf
-    converged = False
     css = CSS()
-    for i in range(num_inits):
-        css.select_subset_from_cov(Sigma_hat, k, method=method)
-        potential_obj = np.trace(css.Sigma_R)
-        if potential_obj < best_obj:
-            best_obj = potential_obj
-            best_S = css.S 
-            converged = css.converged
-    best_S_comp = complement(p, best_S)
-    return best_S, converged
+    css.select_subset_from_cov(Sigma_hat, k=k, method=method, num_inits=num_inits)
+    return css.S, css.converged
 
-def obj_css(Sigma, idxs, resid=None):
-    p = len(Sigma)
-    k = len(idxs)
-    if resid is None:
-        resid = regress_off(Sigma, idxs)
-    return np.trace(resid)
-
-def get_W(Sigma, S):
-    p = Sigma.shape[0]
-    S_comp = complement(p, S)
-    return Sigma[S_comp, :][:, S] @ np.linalg.inv(Sigma[S, :][:, S])
-
-def analyze_missing_data(X_missing, X, k, methods=['mask', 'block', 'lasso'], solver='CLARABEL', num_inits=1):
+def analyze_missing_data(X_missing, X, k, methods=['cov', 'block', 'lasso'], solver='CLARABEL', method='swap', num_inits=1):
     
     n, p = X.shape
     X_missing_c = X_missing - np.nanmean(X_missing, axis=0)
     _, Sigma_hat = get_moments(X)
-    second_moment = 1/n * X.T @ X
     css_results = {}
   
-    if 'mask' in methods:
-        S, converged = masked_css_with_missing_data(X_missing, k, num_inits=num_inits)
-        css_results['mask'] = obj_css(Sigma_hat, S)
+    if 'cov' in methods:
+        S, converged = covariance_css_with_missing_data(X_missing, k, num_inits=num_inits)
+        css_results['cov'] = np.trace(regress_off(Sigma_hat, S))
 
     if 'block' in methods:
         S = block_OMP_with_missing_data(X_missing_c, k)
-        css_results['block'] = obj_css(Sigma_hat, S)
+        css_results['block'] = np.trace(regress_off(Sigma_hat, S))
 
     if 'lasso' in methods:
         S = group_lasso_with_missing_data(X_missing_c, k, solver=solver)
-        css_results['lasso'] = obj_css(Sigma_hat, S)
+        css_results['lasso'] =  np.trace(regress_off(Sigma_hat, S))
     
     return css_results

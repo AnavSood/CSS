@@ -24,7 +24,6 @@ def get_block_W(p, k , num_blocks, block_size, overlap):
         else:
             W[row_start:, col_start:] = 1
     
-    
         row_start += row_move
         col_start += col_move
     
@@ -62,7 +61,7 @@ def generate_gaussian_PCSS_sample_cov(n, C_chol, W, D=None, sigma_sq=None, S=Non
     A_bottom_right = np.zeros((B, p-k, p-k))
     A_bottom_right[:, np.tri(p-k, dtype=bool, k=-1)] = normals[: , int(k *(k-1)/2) + (p-k)*k :]
     i, j =  np.diag_indices(p-k)
-    A_bottom_right[:, i, j] = chi_sqrts[:, :p-k]
+    A_bottom_right[:, i, j] = chi_sqrts[:, k:]
 
     # Left multiply by Cholesky decomposition of V as in 
     # https://en.wikipedia.org/wiki/Wishart_distribution#Bartlett_decomposition
@@ -82,11 +81,12 @@ def generate_gaussian_PCSS_sample_cov(n, C_chol, W, D=None, sigma_sq=None, S=Non
     Sigma_hat = 1/n * Sigma_hat_chol @ np.transpose(Sigma_hat_chol, (0, 2, 1))
   
     if S is not None:
+        S_comp = complement(p, S)
         perm_in_place(Sigma_hat, np.range(p), np.concatenate([S, S_comp]))
     
     return np.squeeze(Sigma_hat) if squeeze else Sigma_hat
 
-def generate_PCSS_data(X_S, W, D=None, sigma_sq=None, mu_S_comp=None, S=None):
+def generate_PCSS_data(X_S, W, D=None, sigma_sq=None, mu_S = None, mu_S_comp=None, S=None):
     
     
     if D is None and sigma_sq is None:
@@ -105,7 +105,6 @@ def generate_PCSS_data(X_S, W, D=None, sigma_sq=None, mu_S_comp=None, S=None):
         raise ValueError("Shapes of X_S and W do not agree")
 
     p = k + W.shape[0]
-    mu_S = np.mean(X_S, axis=1)
 
     noise = np.random.normal(0, 1, size=(B, n, p-k))
     if sigma_sq is not None:
@@ -113,10 +112,12 @@ def generate_PCSS_data(X_S, W, D=None, sigma_sq=None, mu_S_comp=None, S=None):
     if D is not None:
         noise = noise *  np.sqrt(D)[np.newaxis , np.newaxis, :]
 
+    if mu_S is None:
+        mu_S = np.zeros(k)
     if mu_S_comp is None:
-        mu_S_comp = np.zeros((B, p-k))
+        mu_S_comp = np.zeros(p-k)
 
-    X_S_comp = (X_S - mu_S[:, np.newaxis, :] ) @ W.T + noise + mu_S_comp[:, np.newaxis, :]
+    X_S_comp = (X_S - mu_S[np.newaxis, np.newaxis, :] ) @ W.T[np.newaxis, :, :] + noise + mu_S_comp[np.newaxis, np.newaxis, :]
     X = np.dstack([X_S, X_S_comp]) 
     
     if S is not None:

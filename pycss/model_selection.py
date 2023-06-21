@@ -1,6 +1,6 @@
 import numpy as np 
-from subset_selection import *
-from utils import * 
+from pycss.subset_selection import *
+from pycss.utils import * 
 
 def sample_null_dist(n, p, k, B=int(1e5), seed=0):
     if seed is not None:
@@ -18,17 +18,17 @@ def sample_null_dist(n, p, k, B=int(1e5), seed=0):
 def Q(qs, n, p, k, B=int(1e5), seed=0):
     return np.quantile(sample_null_dist(n, p, k, B=B, seed=seed), qs)
 
-def subset_selection(X, 
-                     alpha, 
-                     include=np.array([]), 
-                     exclude=np.array([]), 
-                     quantile_dict={}, 
-                     B=int(1e5),
-                     max_iter=100,
-                     num_inits=1,
-                     exhaustive_cutoff=0,
-                     show_progress=True,
-                     tol=TOL):
+def select_subset(X, 
+                  alpha, 
+                  include=np.array([]), 
+                  exclude=np.array([]), 
+                  quantile_dict={}, 
+                  B=int(1e5),
+                  max_iter=100,
+                  num_inits=1,
+                  exhaustive_cutoff=0,
+                  show_progress=True,
+                  tol=TOL):
     n, p = X.shape
     _, Sigma_hat = get_moments(X)
     Sigma_hat = standardize_cov(Sigma_hat)
