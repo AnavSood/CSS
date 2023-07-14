@@ -1266,7 +1266,7 @@ def swapping_subset_factor_selection(Sigma,
                                      max_iter=100,
                                      num_inits=1, 
                                      S_init=None,
-                                     find_minimizer=False, 
+                                     find_minimizer=True, 
                                      include=np.array([]),
                                      exclude=np.array([]),
                                      tol=TOL):
