@@ -383,6 +383,10 @@ def check_greedy_css_inputs(Sigma, k, cutoffs, include, exclude, tol):
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
         
@@ -546,8 +550,17 @@ def check_swapping_css_inputs(Sigma,
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
+    
+    if len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
     
     if S_init is not None:
         if not isinstance(S_init, np.ndarray) or S_init.dtype != 'int' or len(set(S_init)) != k or (not set(S_init).issubset(np.arange(p))):
@@ -556,11 +569,6 @@ def check_swapping_css_inputs(Sigma,
             raise ValueError("Include must be a subset of S_init.")
         if len(set(exclude).intersection(S_init)) > 0:
             raise ValueError("S_init cannot contain any elements in exlcude.")
-
-    if len(include) > k:
-        raise ValueError("Cannot include more than k.")
-    if len(exclude) > p - k:
-        raise ValueError("Cannot exclude more than p-k.")
 
     
 def swapping_css_with_init(Sigma,
@@ -804,6 +812,10 @@ def check_exhuastive_css_inputs(Sigma,
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
 
@@ -942,6 +954,10 @@ def check_greedy_subset_factor_inputs(Sigma, cutoffs, include, exclude, tol):
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
 
@@ -1078,7 +1094,6 @@ def check_swapping_subset_factor_inputs(Sigma,
                                         max_iter,
                                         num_inits, 
                                         S_init,
-                                        find_minimizer,
                                         include,
                                         exclude,
                                         tol):
@@ -1100,8 +1115,17 @@ def check_swapping_subset_factor_inputs(Sigma,
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
+
+    if len(include) > k:
+        raise ValueError("Cannot include more than k.")
+    if k is not None and len(exclude) > p - k:
+        raise ValueError("Cannot exclude more than p-k.")
     
     if S_init is not None:
         if not isinstance(S_init, np.ndarray) or S_init.dtype != 'int' or len(set(S_init)) != k or (not set(S_init).issubset(np.arange(p))):
@@ -1110,13 +1134,6 @@ def check_swapping_subset_factor_inputs(Sigma,
             raise ValueError("Include must be a subset of S_init.")
         if len(set(exclude).intersection(S_init)) > 0:
             raise ValueError("S_init cannot contain any elements in exlcude.")
-        
-
-    if len(include) > k:
-        raise ValueError("Cannot include more than k.")
-    if k is not None and len(exclude) > p - k:
-        raise ValueError("Cannot exclude more than p-k.")
-
 
     if not isinstance(tol, float):
         raise ValueError("tol must be a float.")
@@ -1125,7 +1142,6 @@ def check_swapping_subset_factor_inputs(Sigma,
 
 def swapping_subset_factor_with_init(Sigma, 
                                      S_init,
-                                     find_minimizer,
                                      cutoff, 
                                      max_iter,
                                      include,
@@ -1242,13 +1258,6 @@ def swapping_subset_factor_with_init(Sigma,
             
             # permute first variables in selected subset to the last variable in the residual matrix
             perm_in_place(Sigma_R, subset_idxs,  subset_idxs_permuted, idx_order=idx_order)
-            
-            # If you don't want to find the minimizer and log det is small enough, terminate now
-            if not find_minimizer:
-                log_det = np.sum(np.log(np.diag(Sigma_R)[:d])) + np.sum(np.log(np.square(np.diag(Sigma_S_L))))
-                if log_det <= cutoff:
-                    reject = False
-                    return S, reject, log_det
 
             if not_replaced == k - len(include):
                 converged=True
@@ -1266,7 +1275,6 @@ def swapping_subset_factor_selection(Sigma,
                                      max_iter=100,
                                      num_inits=1, 
                                      S_init=None,
-                                     find_minimizer=True, 
                                      include=np.array([]),
                                      exclude=np.array([]),
                                      tol=TOL):
@@ -1294,9 +1302,6 @@ def swapping_subset_factor_selection(Sigma,
     S_init : np.array[int] 
         Size `k` array of variables that serves as the initialization for the swapping algorithm.
         If `None` then `num_inits` random initializations are tried.   
-    find_minimizer : bool
-        Controls whether to terminante right when a subset that achieves a log determinant 
-        under `cutoff` or whether to continue searching for better subsets. 
     include : np.array[int], default=np.array([])
         A list of variables that must be included. 
     exclude: np.array[int], default=np.array([])
@@ -1320,7 +1325,6 @@ def swapping_subset_factor_selection(Sigma,
                                         max_iter,
                                         num_inits, 
                                         S_init,
-                                        find_minimizer,
                                         include,
                                         exclude,
                                         tol)
@@ -1347,16 +1351,13 @@ def swapping_subset_factor_selection(Sigma,
 
         S, reject, log_det = swapping_subset_factor_with_init(Sigma=Sigma,
                                                               S_init=S_init,
-                                                              find_minimizer=find_minimizer,
                                                               cutoff=cutoff,
                                                               max_iter=max_iter, 
                                                               include=include,
                                                               exclude=exclude,
                                                               tol=TOL)
-        if not find_minimizer and (not reject):
-            return S, reject 
         
-        if find_minimizer and (not reject):
+        if not reject:
             reject = reject
 
         if log_det < best_log_det:
@@ -1370,7 +1371,6 @@ def check_exhuastive_subset_factor_inputs(Sigma,
                                           cutoff, 
                                           include,
                                           exclude,
-                                          find_minimizer,
                                           show_progress,
                                           tol):
     
@@ -1383,7 +1383,7 @@ def check_exhuastive_subset_factor_inputs(Sigma,
     if not n == p:
         raise ValueError("Sigma must be a square matrix.")
 
-    if not isinstance(k, (int, np.integer)) or k <= 0 or k > p:
+    if not isinstance(k, (int, np.integer)) or k < 0 or k > p:
         raise ValueError("k must be an integer > 0 and <= p.")
         
     set_include = set(include)
@@ -1392,6 +1392,10 @@ def check_exhuastive_subset_factor_inputs(Sigma,
         raise ValueError('Include must be a numpy array of integers from 0 to p-1.')
     if not isinstance(exclude, np.ndarray) or (exclude.dtype != 'int' and len(exclude) > 0) or not set_exclude.issubset(np.arange(p)):
         raise ValueError('Exclude must be a numpy array of integers from 0 to p-1.')
+    if len(include) != len(set_include):
+        raise ValueError("Include has repeated elements.")
+    if len(exclude) != len(set_include):
+        raise ValueError("Exclude has repeated elements.")
     if len(set_exclude.intersection(set_include)) > 0:
         raise ValueError("Include and exclude must be disjoint.")
 
@@ -1407,7 +1411,6 @@ def exhaustive_subset_factor_selection(Sigma,
                                        include=np.array([]),
                                        exclude=np.array([]),
                                        show_progress=True,
-                                       find_minimizer=False, 
                                        tol=TOL):
     
     """
@@ -1428,9 +1431,6 @@ def exhaustive_subset_factor_selection(Sigma,
         A list of variables that must be included. 
     exclude: np.array[int], default=np.array([])
         A list of variables that must not be included.
-    find_minimizer : bool
-        If `True`, continues to search for minimizer if subset that achieves log determinant
-        below the cutoff is found.
     show_progress : bool
         If `True`, informs the user of the number of subsets being searched over
         and shows a progress bar.
@@ -1454,10 +1454,15 @@ def exhaustive_subset_factor_selection(Sigma,
                                           cutoff=cutoff, 
                                           include=include,
                                           exclude=exclude,
-                                          find_minimizer=False,
                                           show_progress=show_progress,
                                           tol=tol)
 
+    #handle case where subset must be empty 
+    if k == 0:
+        log_det = np.sum(np.log(np.diag(Sigma)))
+        reject = log_det > cutoff
+        return np.array([]), reject
+    
     best_S = None
     best_log_det = np.inf 
     reject = True 
@@ -1472,7 +1477,7 @@ def exhaustive_subset_factor_selection(Sigma,
     else:
         iterator = itertools.combinations(options, to_add)
 
-    for  remaining in iterator:
+    for remaining in iterator:
         S[len(include):] = np.array(remaining).astype(int)
         Sigma_R = regress_off(Sigma, S, tol=tol)
         invertible, Sigma_S_L =  is_invertible(Sigma[:, S][ S, :])
@@ -1485,8 +1490,6 @@ def exhaustive_subset_factor_selection(Sigma,
         log_det =  np.sum(np.log((np.square(np.diag(Sigma_S_L))))) + np.sum(np.log(np.diag(Sigma_R)[S_comp]))
         if log_det <= cutoff:
             reject = False
-            if not find_minimizer:
-                return S, reject
 
         if log_det < best_log_det:
             best_log_det = log_det

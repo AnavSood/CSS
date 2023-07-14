@@ -2,7 +2,13 @@ import numpy as np
 from pycss.subset_selection import *
 from pycss.utils import * 
 
-def sample_null_dist(n, p, k, B=int(1e5), seed=0):
+def sample_null_dist(n, p, k, B=int(1e4), seed=0):
+
+    """
+    Takes `B` samples from the null distribution correponding to 
+    `n` observed samples, `p` variables, and a size `k` subset. 
+    """
+
     if seed is not None:
         np.random.seed(0)
 
@@ -13,10 +19,13 @@ def sample_null_dist(n, p, k, B=int(1e5), seed=0):
 
     off_diag_dfs = np.arange(1, num_features)
     off_diag_chi_sqs = np.random.chisquare(df=off_diag_dfs, size=(B, len(off_diag_dfs)))
+
+    if seed is not None:
+        np.random.seed()
     
     return n*(np.sum( np.log(off_diag_chi_sqs/diag_chi_sqs + 1), axis=1))
 
-def Q(qs, n, p, k, B=int(1e5), seed=0):
+def Q(qs, n, p, k, B=int(1e4), seed=0):
     return np.quantile(sample_null_dist(n, p, k, B=B, seed=seed), qs)
 
 def select_subset(X, 
@@ -25,12 +34,62 @@ def select_subset(X,
                   include=np.array([]), 
                   exclude=np.array([]), 
                   quantile_dict={}, 
-                  B=int(1e5),
+                  B=int(1e4),
                   max_iter=100,
                   num_inits=1,
-                  exhaustive_cutoff=0,
+                  exhaustive_cutoff=-1,
                   show_progress=True,
                   tol=TOL):
+    
+    """
+    Given a `(n, p)`-shaped data matrix `X`determines finds the smallest subset size for which we fail
+    to reject that a subset factor model is sufficient, and then selects a subset of that size.
+
+    Parameters
+	----------
+	X : np.array
+	    A `(n, p)`-shaped data matrix.
+    alpha : float
+        The error control target.
+    method : str, default=`swap`
+        The method by which to search for a minimizing subset during the procedure. Options are
+        `swap` and `greedy`.
+    include : np.array[int], default=np.array([])
+        A list of variables that must be included. 
+    exclude: np.array[int], default=np.array([])
+        A list of variables that must not be included.
+    quantile_dict : dict[(float, int, int, int)), float], default=None
+        A dictionary that maps a tuple of (quantile, `n`, `p`, `k`) to the appropriate quantile of the null
+        distribution. Used to determin the ciritcal values for the tests. If not passed in will be computed 
+        internally (which is recommended). 
+    B : int, default=10000
+        Number of samples of the null distribution to take when computing the relevant quantiles to determine
+        the critical values. Irrelevant if the relevant quantile is in `quantile_dict`
+    max_iter : int, default=100
+        Only relevant if method is `swap`. Maximum number of iterations for the swapping algorithm to achieve 
+        convergence.
+    num_inits : int, default=1
+        Only relevant if method is `swap`. Number of random initializations to try.
+    exhaustive_cutoff : int, default=-1
+        Only relevant if method is `swap`. If the total number of subsets to search over is less than this value, 
+        then an exhaustive search is conducted rather than search via the swapping algorithm.
+    show_progress : bool, default=True
+        Only relevant if method is `swap`. If `True`, informs the user of the number of subsets being searched over
+        and shows a progress bar in the case of an exhaustive search. 
+    tol : float, default=`TOL`
+        Tolerance at which point we consider a variable to have zero variance.
+	
+    Returns 
+	-------
+	S : np.array
+        The selected subset. 
+    Sigma_R : np.array
+        The '(p, p)'-shaped residual covariance corresponding to `S`. 
+    S_init : np.array[int]
+        The initialization the resulted in the selected subset. 
+    converged : bool
+        Whether or not the algorithm achieved convergence. 
+	"""
 
     n, p = X.shape
     _, Sigma_hat = get_moments(X)
@@ -61,9 +120,14 @@ def select_subset_from_cov(Sigma_hat,
                            B=int(1e4),
                            max_iter=100,
                            num_inits=1,
-                           exhaustive_cutoff=0,
+                           exhaustive_cutoff=-1,
                            show_progress=True,
                            tol=TOL):
+    """
+    Given a `(p, p)`-shaped sample covariance `Sigma_hat` and sample size `n` from which it was computed,
+    determines finds the smallest subset size for which we fail to reject that a subset factor model is sufficient, 
+    and then selects a subset of that size. See `select_subset` for a description of the inputs. 
+    """
     
     p = Sigma_hat.shape[0]
     
@@ -85,171 +149,32 @@ def select_subset_from_cov(Sigma_hat,
 
     if method == 'swap':
 
-        for k in range(p + 1 - len(exclude)):
-            S, reject = swapping_subset_factor_selection(Sigma_hat,
-                                                        k,
-                                                        cutoffs[k],
-                                                        max_iter=max_iter,
-                                                        num_inits=num_inits,
-                                                        include=include,
-                                                        exclude=exclude,
-                                                        tol=tol)
+        if len(include) >= p + 1 - len(exclude):
+            raise ValueError("Include and exclude are not compatiable with this problem.")
+        
+
+        for k in range(len(include), p + 1 - len(exclude)):
+
+            if math.comb(p - len(exclude), k - len(include)) <= exhaustive_cutoff:
+                S, reject = exhaustive_subset_factor_selection(Sigma_hat, 
+                                                               k, 
+                                                               cutoffs[k], 
+                                                               include=include,
+                                                               exclude=exclude,
+                                                               show_progress=show_progress,
+                                                               tol=tol)
+
+            else:
+                S, reject = swapping_subset_factor_selection(Sigma_hat,
+                                                             k,
+                                                             cutoffs[k],
+                                                             max_iter=max_iter,
+                                                             num_inits=num_inits,
+                                                             include=include,
+                                                             exclude=exclude,
+                                                             tol=tol)
             if not reject:
              return S
+        
         warnings.warn("We can still reject the model with this S, but nothing more can be added.")
         return S
-            
-
-
-
-
-#     k = len(S)
-#     while not reject:
-#         num_options = math.comb(p - len(include) - len(exclude), k - len(include))
-#         k = k-1
-        
-#         if num_options <= exhaustive_cutoff:
-#             S, reject = exhaustive_subset_factor_selection(Sigma_hat,
-#                                                            k,
-#                                                            cutoffs[k],
-#                                                            include=include,
-#                                                            exclude=exclude,
-#                                                            show_progress=show_progress,
-#                                                            tol=TOL)
-#         else:
-#             S, reject = swapping_subset_factor_selection(Sigma_hat,
-#                                                          k,
-#                                                          cutoffs[k],
-#                                                          max_iter=max_iter,
-#                                                          num_inits=num_inits,
-#                                                          include=include,
-#                                                          exclude=exclude,
-#                                                          tol=TOL)
-#         if reject:
-#             if num_options <= exhaustive_cutoff:
-#                 S, reject = exhaustive_subset_factor_selection(Sigma_hat,
-#                                                            k+1,
-#                                                            cutoffs[k+1],
-#                                                            include=include,
-#                                                            exclude=exclude,
-#                                                            show_progress=show_progress,
-#                                                            find_minimizer=True, 
-#                                                            tol=TOL)
-#             else:
-#                 S, reject = swapping_subset_factor_selection(Sigma_hat,
-#                                                              k+1,
-#                                                              cutoffs[k+1],
-#                                                              max_iter=max_iter,
-#                                                              num_inits=num_inits,
-#                                                              find_minimizer=True,
-#                                                              include=include,
-#                                                              exclude=exclude,   
-#                                                              tol=TOL)
-#             return S 
-
-
-# def select_subset(X, 
-#                   alpha, 
-#                   include=np.array([]), 
-#                   exclude=np.array([]), 
-#                   quantile_dict={}, 
-#                   B=int(1e5),
-#                   max_iter=100,
-#                   num_inits=1,
-#                   exhaustive_cutoff=0,
-#                   show_progress=True,
-#                   tol=TOL):
-#     n, p = X.shape
-#     _, Sigma_hat = get_moments(X)
-#     Sigma_hat = standardize_cov(Sigma_hat)
-
-#     S = select_subset_from_cov(Sigma_hat,
-#                                n,
-#                                alpha, 
-#                                include=np.array([]), 
-#                                exclude=np.array([]), 
-#                                quantile_dict={}, 
-#                                B=int(1e4),
-#                                max_iter=100,
-#                                num_inits=1,
-#                                exhaustive_cutoff=0,
-#                                show_progress=True,
-#                                tol=TOL)
-#     return S
-    
-
-# def select_subset_from_cov(Sigma_hat, 
-#                            n, 
-#                            alpha, 
-#                            include=np.array([]), 
-#                            exclude=np.array([]), 
-#                            quantile_dict={}, 
-#                            B=int(1e4),
-#                            max_iter=100,
-#                            num_inits=1,
-#                            exhaustive_cutoff=0,
-#                            show_progress=True,
-#                            tol=TOL):
-    
-#     p = Sigma_hat.shape[0]
-    
-#     crit_vals = np.array([Q(1-alpha, n, p, i, B=B) if (1 - alpha, n, p , i) not in quantile_dict.keys() else quantile_dict[( 1 - alpha, n, p , i)] for i in range(p + 1)])
-#     cutoffs = crit_vals/n  + np.linalg.slogdet(Sigma_hat)[1]
-
-#     S, reject = greedy_subset_factor_selection(Sigma_hat,
-#                                                cutoffs,
-#                                                include=include,
-#                                                exclude=exclude,
-#                                                tol=tol)
-    
-    
-#     if reject:
-#         warnings.warn("We can still reject the model with this S, but nothing more can be added.")
-#         return S
-#     if len(S) <= 1:
-#         return S 
-
-
-#     k = len(S)
-#     while not reject:
-#         num_options = math.comb(p - len(include) - len(exclude), k - len(include))
-#         k = k-1
-        
-#         if num_options <= exhaustive_cutoff:
-#             S, reject = exhaustive_subset_factor_selection(Sigma_hat,
-#                                                            k,
-#                                                            cutoffs[k],
-#                                                            include=include,
-#                                                            exclude=exclude,
-#                                                            show_progress=show_progress,
-#                                                            tol=TOL)
-#         else:
-#             S, reject = swapping_subset_factor_selection(Sigma_hat,
-#                                                          k,
-#                                                          cutoffs[k],
-#                                                          max_iter=max_iter,
-#                                                          num_inits=num_inits,
-#                                                          include=include,
-#                                                          exclude=exclude,
-#                                                          tol=TOL)
-#         if reject:
-#             if num_options <= exhaustive_cutoff:
-#                 S, reject = exhaustive_subset_factor_selection(Sigma_hat,
-#                                                            k+1,
-#                                                            cutoffs[k+1],
-#                                                            include=include,
-#                                                            exclude=exclude,
-#                                                            show_progress=show_progress,
-#                                                            find_minimizer=True, 
-#                                                            tol=TOL)
-#             else:
-#                 S, reject = swapping_subset_factor_selection(Sigma_hat,
-#                                                              k+1,
-#                                                              cutoffs[k+1],
-#                                                              max_iter=max_iter,
-#                                                              num_inits=num_inits,
-#                                                              find_minimizer=True,
-#                                                              include=include,
-#                                                              exclude=exclude,   
-#                                                              tol=TOL)
-#             return S 
