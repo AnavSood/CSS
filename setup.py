@@ -14,7 +14,7 @@ setup(
     name="pycss",
     description="CSS Package",
     author="Anav Sood",
-    author_email="anavsood@stanford.edu",
+    author_email="anavsood@gmail.com",
     packages=find_packages(),
     install_requires=["numpy"],
     zip_safe=False,
