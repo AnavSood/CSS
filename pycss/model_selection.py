@@ -42,7 +42,7 @@ def select_subset(X,
                   tol=TOL):
     
     """
-    Given a `(n, p)`-shaped data matrix `X`determines finds the smallest subset size for which we fail
+    Given a `(n, p)`-shaped data matrix `X` determines the smallest subset size for which we fail
     to reject that a subset factor model is sufficient, and then selects a subset of that size.
 
     Parameters
@@ -178,3 +178,92 @@ def select_subset_from_cov(Sigma_hat,
         
         warnings.warn("We can still reject the model with this S, but nothing more can be added.")
         return S
+    
+############ FOR REVIEWS ONLY ##################
+
+def comp_df(p, k, model='pcss'):
+    if model == 'pcss':
+        return p + k * (k+1)/2 + (p-k)*k + 1
+    if model == 'sf':
+        return p + k * (k+1)/2 + (p-k)*k + p-k
+    
+def comp_L(Sigma, n, S, penalty='AIC', model='pcss'):
+    p = Sigma.shape[0]
+    Sigma_R = regress_off(Sigma, S)
+    (_, logdet) = np.linalg.slogdet(Sigma[:, S][S, :])
+    diag = np.diag(Sigma_R)[complement(p, S)]
+    if model == 'pcss':
+        L = 1/2 * logdet + p/2 * (1 + np.log(2*np.pi)) + (p-k)/2 * np.log(np.sum(diag)/(p-k)) 
+    if model == 'sf':
+        L = 1/2 * logdet + p/2 * (1 + np.log(2*np.pi)) + 1/2 * np.sum(np.log(diag)) 
+        
+    return -1 * n * L 
+
+def comp_adj_L(Sigma, n, S, penalty='AIC', model='pcss'):
+    S = np.array(S)
+    k = len(S)
+    p = Sigma.shape[0]
+    d = comp_df(p, k, model)
+    L = comp_L(Sigma, n, S, penalty=penalty, model=model) 
+    if 'AIC':
+        return 2*d - 2*L
+    if 'BIC':
+        return d*np.log(n) - 2*L 
+    
+
+def forward_backward(Sigma,
+                     n,
+                     penalty='AIC',
+                     model='pcss'):
+    p = Sigma.shape[0]
+    best_obj = np.inf 
+    forward = True
+    backward = True
+    S = []
+    
+    while forward or backward:
+        while forward:
+            if len(S) == p:
+                forward=False
+                break
+            best_i = None
+            for i in range(p):
+                if i not in S:
+                    obj = comp_adj_L(Sigma, 
+                                     n, 
+                                     S + [i], 
+                                     penalty=penalty, 
+                                     model=model)
+                if obj < best_obj:
+                    best_obj = obj
+                    best_i = i
+                    
+            if best_i is None:
+                forward = False
+            else:
+                S = S + [best_i]
+                backward = True      
+        while backward:
+            if len(S) == 1:
+                backward = False
+                break
+            best_i = None
+            for i in S:
+                S_copy = S.copy()
+                S_copy.remove(i)
+                obj = comp_adj_L(Sigma, 
+                                     n, 
+                                     S_copy, 
+                                     penalty=penalty, 
+                                     model=model)
+                if obj < best_obj:
+                    best_obj = obj
+                    best_i = i
+                    
+            if best_i is None:
+                backward = False
+            else:
+                S.remove(best_i)
+                forward = True
+            
+    return S

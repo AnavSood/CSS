@@ -111,7 +111,7 @@ class CSS():
         self._check_inputs(method, objective)
     
         if center:
-            X -= np.mean(X, axis = 0)
+            X = X - np.mean(X, axis = 0)
 
         self.select_subset_from_cov(Sigma = 1/n * X.T @ X, 
                                     k=k, 
