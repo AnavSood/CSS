@@ -985,7 +985,7 @@ def greedy_subset_factor_selection(Sigma,
 	    A `(p, p)`-shaped covariance matrix to perform subset selection with.
     cutoffs : np.array
         A '(p+1, )'-shaped numpy array containing the cutoffs. The greedily selected size-i
-        susbet is sufficient if the corresponding log determinant is less than or qual to 
+        subset is sufficient if the corresponding log determinant is less than or qual to 
         the i-th value of cutoffs. 
     include : np.array[int], default=np.array([])
         A list of variables that must be included. 
@@ -1038,7 +1038,7 @@ def greedy_subset_factor_selection(Sigma,
             if len(colinearity_errors[0]) > 0:
                 warnings.warn("When you add variable "  + str(colinearity_errors[0]) + " to " + str(S[:num_selected]) + " it perfectly explains variable " + str(colinearity_errors[1]) + ".")
                 reject = False
-                return np.concatenate([S[:num_selected], np.array([colinearity_errors[0][1]])]), reject
+                return np.concatenate([S[:num_selected], np.array([colinearity_errors[0][0]])]), reject
 
             # set the exclude objective values to infinity
             obj_vals[np.in1d(idx_order[:num_active], exclude)] = np.inf
@@ -1223,9 +1223,10 @@ def swapping_subset_factor_with_init(Sigma,
 
                 # if adding a variable results in zero residual, warn the user and fail to reject
                 if len(colinearity_errors[0]) > 0:
-                    warnings.warn("When you add variable "  + str(colinearity_errors[0]) + " to " + str(S[:num_selected]) + " it perfectly explains variable " + str(colinearity_errors[1]) + ".")
+                    # bug in this warning that needs to be fixed
+                    warnings.warn("When you add variable "  + str(colinearity_errors[0]) + " to " + str(T) + " it perfectly explains variable " + str(colinearity_errors[1]) + ".")
                     reject = False
-                    return np.concatenate([T, np.array([colinearity_errors[0][1]])]), reject, -np.inf
+                    return np.concatenate([T, np.array([colinearity_errors[0][0]])]), reject, -np.inf
 
                 # set the objective value to infinity for the excluded variables
                 obj_vals[np.in1d(idx_order[:(d+1)], exclude)] = np.inf

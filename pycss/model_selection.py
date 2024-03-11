@@ -181,7 +181,7 @@ def select_subset_from_cov(Sigma_hat,
     
 ############ FOR REVIEWS ONLY ##################
 
-def comp_df(p, k, model='pcss'):
+""" def comp_df(p, k, model='pcss'):
     if model == 'pcss':
         return p + k * (k+1)/2 + (p-k)*k + 1
     if model == 'sf':
@@ -266,4 +266,39 @@ def forward_backward(Sigma,
                 S.remove(best_i)
                 forward = True
             
-    return S
+    return S """
+
+def remove_one_for_fb(S, Sigma, cutoff):
+    p = Sigma.shape[0]
+    best_log_det = np.inf
+    S_new = None
+    
+    for i in S:
+        S_copy = list(S.copy())
+        S_copy.remove(i)
+        S_copy = np.array(S_copy)
+        Sigma_R = regress_off(Sigma, S_copy)
+        log_det = np.linalg.slogdet(Sigma[S_copy, :][:, S_copy])[1] + np.sum(np.log(np.diag(Sigma_R)[complement(p, S_copy)]))
+        if log_det < best_log_det:
+            best_log_det = log_det
+            S_new = S_copy.copy()
+    
+    keep_removing = best_log_det < cutoff 
+    if not keep_removing:
+        S_new = S.copy()
+    return S_new, keep_removing
+
+
+def forward_backward(Sigma, n, alpha, quantile_dict):
+    p = Sigma.shape[0]
+    crit_vals = np.array([quantile_dict[( 1 - alpha, n, p , i)] for i in range(p + 1)])
+    cutoffs = crit_vals/n  + np.linalg.slogdet(Sigma)[1]
+    S = select_subset_from_cov(Sigma, 
+                                n,
+                                alpha, 
+                                method='greedy', 
+                                quantile_dict=quantile_dict)
+    remove = True
+    while remove:
+        S, remove = remove_one_for_fb(S, Sigma, cutoffs[len(S)-1])
+    return S 
